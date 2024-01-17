@@ -87,9 +87,23 @@ for counter, task in enumerate(tasks):
 
 
     #%% === Trigger detection & timing correction === #
-    
-    # ch177 and 178 (MISC 18 and 19) == HF / LF targets
+
     # ch169 (MISC 10) == Photodetector
+    
+    # B1 (dual LDT):
+    # ch177 and 178 (MISC 18 and 19) == HF / LF stim onset
+    # ch182 and 183 == saccade onset (right / left)
+
+    # B2 (single LDT):
+    # ch177 and 178 (MISC 18 and 19) == HF / LF stim onset
+
+    # B3 (hash-string saccade task):
+    # ch179 == stim onset (for both right and left)
+    # ch182 and 183 == saccade onset (right / left)
+    
+    # B4 (dot saccade task):
+    # ch185 == stim onset (for both right and left)
+    # ch182 and 183 == saccade onset (right / left)
 
     #%% Find events
     events = mne.find_events(
@@ -237,7 +251,11 @@ for counter, task in enumerate(tasks):
         ]
     )
     fig[0].savefig(ERFs_figure_fname)
- 
+
+
+# this is just for pausing the script (using a breakpoint), 
+# so that it doesn't exit immediately
+print("All done!")
            
 
 # report = mne.Report(title=fname_raw[0])
