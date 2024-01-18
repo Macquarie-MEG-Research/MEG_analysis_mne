@@ -27,9 +27,9 @@ import my_preprocessing
 
 
 # set up file and folder paths here
-exp_dir = "/Volumes/DATA/RSG data/"
-subject_MEG = '20240109_Pilot01_LY'
-tasks = ['_B1'] #'_oddball' #''
+exp_dir = "/mnt/d/Work/analysis_ME209/" #"/Volumes/DATA/RSG data/"
+subject_MEG = '20240109_Pilot02_AV'
+tasks = ['_B1'] #'_B2' #''
 
 # the paths below should be automatic
 data_dir = exp_dir + "data/"
@@ -79,7 +79,7 @@ for counter, task in enumerate(tasks):
     raw._data[0:160] = data_after_tspca.transpose()
 
     # browse data to identify bad sections & bad channels
-    raw.plot()
+    #raw.plot()
 
 
     # Filtering & ICA
@@ -109,7 +109,7 @@ for counter, task in enumerate(tasks):
     events = mne.find_events(
         raw,
         output="onset",
-        consecutive=False,
+        consecutive='increasing', # tmp solution to deal with saccade triggers not being detected (should change back to "false" in new version of exp)
         min_duration=0,
         shortest_event=1,  # 5 for adults
         mask=None,
@@ -119,17 +119,79 @@ for counter, task in enumerate(tasks):
         verbose=None,
     )
 
-    conds_we_care_about = ["HF", "LF"]
-
+    # MANUAL CHECK - do saccade onset triggers have any delays?
+    '''
+    # find all stim onset & saccade onset triggers
+    stim_onset = []
+    saccade_onset = []
     for index, event in enumerate(events):
-        if event[2] == 177: # ch177 == MISC 18
-            events[index, 2] = 2 # HF
-        elif event[2] == 178: # ch178 == MISC 19
-            events[index, 2] = 3 # LF
+        if task == '_B1':
+            if event[2] == 177 or event[2] == 178 or event[2] == 181: # stim onset trigger
+                stim_onset.append(event[0])
+        if task == '_B3':
+            if event[2] == 179: # stim onset trigger
+                stim_onset.append(event[0])
+        if task == '_B4':
+            if event[2] == 185: # stim onset trigger
+                stim_onset.append(event[0])
+        if event[2] == 182 or event[2] == 183: # saccade onset trigger
+            saccade_onset.append(event[0])
+
+    # sac latency = saccade onset minus stim onset
+    #assert(len(stim_onset) == len(saccade_onset))
+    sac_latencies = []
+    missing = []
+    for i in range(len(stim_onset)):
+        idx = np.where((saccade_onset >= stim_onset[i]) & (saccade_onset < stim_onset[i]+4000))
+        if len(idx[0]): # if a saccade onset trigger exists within the specified window
+            idx = idx[0][0] # use the first one
+            sac_latencies.append(saccade_onset[idx] - stim_onset[i])
+        else:
+            missing.append(i)
+    sac_latencies_avg = np.mean(sac_latencies)
+    if missing:
+        print("Could not calculate sac latencies for", len(missing), "trials!")
+    # now we can compare these values with the sac latencies for each task
+    # in the excel table extracted from eyetracking data
+    '''
+
+    # update the following when we have the new version of exp:
+    if task == '_B1':
+        conds_for_stim_locked = ["HF", "LF"]
+        conds_for_saccade_locked = ["right", "left"]
+    elif task == '_B2':
+        conds_for_stim_locked = ["HF", "LF"]
+        conds_for_saccade_locked = []
+    elif task == '_B3' or task == '_B4':
+        conds_for_stim_locked = ["all"]
+        conds_for_saccade_locked = ["right", "left"]
+
+    if task == '_B1' or task == '_B2':
+        for index, event in enumerate(events):
+            if event[2] == 177: # ch177 == MISC 18
+                events[index, 2] = 2 # HF
+            elif event[2] == 178: # ch178 == MISC 19
+                events[index, 2] = 3 # LF
+    elif task == '_B3': # hash saccade
+        for index, event in enumerate(events):
+            if event[2] == 179:
+                events[index, 2] = 2 # stim onset
+    elif task == '_B4': # dot saccade
+        for index, event in enumerate(events):
+            if event[2] == 185:
+                events[index, 2] = 2 # stim onset
+    # for all blocks, saccade triggers are on the same channels
+    for index, event in enumerate(events):
+        if event[2] == 182: # ch182 == MISC 23
+            events[index, 2] = 6 # saccade right
+        elif event[2] == 183: # ch183 == MISC 24
+            events[index, 2] = 7 # saccade left
 
     event_ids = {
-        conds_we_care_about[0]: 2, # HF
-        conds_we_care_about[1]: 3, # LF
+        conds_for_stim_locked[0]: 2, # HF
+        conds_for_stim_locked[1]: 3, # LF
+        conds_for_saccade_locked[0]: 6, # saccade right
+        conds_for_saccade_locked[1]: 7, # saccade left
     }
 
 
@@ -139,7 +201,7 @@ for counter, task in enumerate(tasks):
     # Ensure correct PD channel is entered here, might sometimes be 165
     events_PD = mne.find_events(
         raw, 
-        stim_channel=[raw.info["ch_names"][x] for x in [169]], 
+        stim_channel=[raw.ch_names[x] for x in [169]], 
         output="onset", 
         consecutive=False,
     )
@@ -215,19 +277,19 @@ for counter, task in enumerate(tasks):
     events = np.concatenate((events_target["event2"], events_target["event3"]))
 
     event_ids = {
-        conds_we_care_about[0]: 22, # HF
-        conds_we_care_about[1]: 23, # LF
+        conds_for_stim_locked[0]: 22, # HF
+        conds_for_stim_locked[1]: 23, # LF
     }
 
 
-    #%% === Sensor space analysis (ERFs) === #
+    #%% === Sensor space analysis (ERFs), stimulus-locked === #
 
     # epoching
     if os.path.exists(epochs_fname):
         epochs_resampled = mne.read_epochs(epochs_fname)
     else:
         epochs = mne.Epochs(raw, events, event_id=event_ids, tmin=-0.1, tmax=0.5, preload=True)
-        epochs.equalize_event_counts(conds_we_care_about)
+        epochs.equalize_event_counts(conds_for_stim_locked)
 
         # sanity check - PD triggers occur at 0ms
         mne.viz.plot_evoked(
@@ -243,15 +305,22 @@ for counter, task in enumerate(tasks):
         epochs_resampled.save(epochs_fname)
 
     # plot ERFs
-    mne.viz.plot_evoked(epochs_resampled.average(), gfp="only")
+    #mne.viz.plot_evoked(epochs_resampled.average(), gfp="only")
     fig = mne.viz.plot_compare_evokeds(
         [
-            epochs_resampled[conds_we_care_about[0]].average(),
-            epochs_resampled[conds_we_care_about[1]].average(),
+            epochs_resampled[conds_for_stim_locked[0]].average(),
+            epochs_resampled[conds_for_stim_locked[1]].average(),
         ]
     )
     fig[0].savefig(ERFs_figure_fname)
 
+    #%% === Sensor space analysis (ERFs), saccade-locked === #
+
+    # epoching
+
+    # plot ERFs
+
+    
 
 # this is just for pausing the script (using a breakpoint), 
 # so that it doesn't exit immediately
