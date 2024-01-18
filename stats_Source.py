@@ -52,19 +52,31 @@ for fname in stc_files[1:]:
 # divide by number of subjects
 stcs_GA = stcs_sum / len(stc_files)
 
-
 # feed into the dummy stc structure
 stc.data = stcs_GA
 
-# plot the GA stc
+
+# Plot the GA stc
 subjects_dir = op.join(processing_dir, "mri")
 subject='fsaverage'
+
+# for volumetric source space:
 src_fname = op.join(subjects_dir, subject, "bem", subject + "_vol-src.fif") 
 src = mne.read_source_spaces(src_fname)
-
 fig = stc.plot(src=src, 
     subject=subject, subjects_dir=subjects_dir, verbose=True,
     #mode='glass_brain',
     initial_time=0.08)
-
 fig.savefig(op.join(figures_dir, 'GA' + meg_task + run_name + '.png'))
+
+# for surface-based source space:
+vertno_max, time_max = stc.get_peak(hemi='rh')
+surfer_kwargs = dict(
+    hemi='rh', subject=subject, subjects_dir=subjects_dir,
+    clim=dict(kind='value', lims=[8, 12, 15]), views='lateral',
+    initial_time=time_max, time_unit='s', size=(800, 800), smoothing_steps=10)
+brain = stc.plot(**surfer_kwargs)
+brain.add_foci(vertno_max, coords_as_verts=True, hemi='rh', color='blue',
+            scale_factor=0.6, alpha=0.5)
+# see also:
+# https://mne.tools/stable/auto_tutorials/inverse/60_visualize_stc.html#surface-source-estimates
