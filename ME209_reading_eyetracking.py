@@ -28,8 +28,13 @@ import my_preprocessing
 
 # set up file and folder paths here
 exp_dir = "/mnt/d/Work/analysis_ME209/" #"/Volumes/DATA/RSG data/"
-subject_MEG = '20240109_Pilot02_AV'
-tasks = ['_B1'] #'_B2' #''
+subject_MEG = '20240109_Pilot01_LY'
+tasks = ['_B4'] #'_B2' #''
+
+# specify run options here
+run_name = '' #'_noICA' #''
+do_ICA = True
+
 
 # the paths below should be automatic
 data_dir = exp_dir + "data/"
@@ -54,16 +59,20 @@ for counter, task in enumerate(tasks):
     fname_raw = glob.glob(meg_dir + "*" + task + ".con")
 
     ica_fname = save_dir + subject_MEG + task + "-ica.fif"
-    epochs_fname = save_dir + subject_MEG + task + "-epo.fif"
+    epochs_fname = save_dir + subject_MEG + task + run_name + "_stim-epo.fif"
+    epochs_fname_sac_locked = save_dir + subject_MEG + task + run_name + "_sac-epo.fif"
     #ERFs_fname = save_dir + subject_MEG + task + "-ave.fif"
-    ERFs_figure_fname = figures_dir + subject_MEG + task + ".png"
+    ERFs_figure_fname = figures_dir + subject_MEG + task + run_name + "_stim.png"
+    ERFs_sac_figure_fname = figures_dir + subject_MEG + task + run_name + "_sac.png"
+    butterfly_figure_fname = figures_dir + subject_MEG + task + run_name + '_stim_butterfly.png'
+    butterfly_sac_figure_fname = figures_dir + subject_MEG + task + run_name + '_sac_butterfly.png'
 
     raw = mne.io.read_raw_kit(
         fname_raw[0], 
         mrk=fname_mrk[0],
         elp=fname_elp[0],
         hsp=fname_hsp[0],
-        stim=[*range(176, 192)],
+        stim=[*range(176, 180), *range(181, 192)], # exclude ch180 (button box trigger), as it sometimes overlaps with other triggers and therefore results in an additional event on channel 300+
         slope="+",
         stim_code="channel",
         stimthresh=1,  # 2 for adults
@@ -79,11 +88,11 @@ for counter, task in enumerate(tasks):
     raw._data[0:160] = data_after_tspca.transpose()
 
     # browse data to identify bad sections & bad channels
-    #raw.plot()
+    raw.plot()
 
 
     # Filtering & ICA
-    raw = my_preprocessing.reject_artefact(raw, 0.1, 40, False, ica_fname)
+    raw = my_preprocessing.reject_artefact(raw, 0.1, 40, do_ICA, ica_fname)
 
 
     #%% === Trigger detection & timing correction === #
@@ -109,7 +118,7 @@ for counter, task in enumerate(tasks):
     events = mne.find_events(
         raw,
         output="onset",
-        consecutive='increasing', # tmp solution to deal with saccade triggers not being detected (should change back to "false" in new version of exp)
+        consecutive="True", # tmp solution to deal with saccade triggers not being detected
         min_duration=0,
         shortest_event=1,  # 5 for adults
         mask=None,
@@ -119,7 +128,7 @@ for counter, task in enumerate(tasks):
         verbose=None,
     )
 
-    # MANUAL CHECK - do saccade onset triggers have any delays?
+    # Check if saccade onset triggers have any delays (by comparing to eyetracking data)
     '''
     # find all stim onset & saccade onset triggers
     stim_onset = []
@@ -155,17 +164,8 @@ for counter, task in enumerate(tasks):
     # in the excel table extracted from eyetracking data
     '''
 
-    # update the following when we have the new version of exp:
-    if task == '_B1':
-        conds_for_stim_locked = ["HF", "LF"]
-        conds_for_saccade_locked = ["right", "left"]
-    elif task == '_B2':
-        conds_for_stim_locked = ["HF", "LF"]
-        conds_for_saccade_locked = []
-    elif task == '_B3' or task == '_B4':
-        conds_for_stim_locked = ["all"]
-        conds_for_saccade_locked = ["right", "left"]
-
+    # recode event IDs so we can spot them more easily in the events array (optional)
+    # TODO - update the following when we have the new version of exp
     if task == '_B1' or task == '_B2':
         for index, event in enumerate(events):
             if event[2] == 177: # ch177 == MISC 18
@@ -187,12 +187,38 @@ for counter, task in enumerate(tasks):
         elif event[2] == 183: # ch183 == MISC 24
             events[index, 2] = 7 # saccade left
 
-    event_ids = {
-        conds_for_stim_locked[0]: 2, # HF
-        conds_for_stim_locked[1]: 3, # LF
-        conds_for_saccade_locked[0]: 6, # saccade right
-        conds_for_saccade_locked[1]: 7, # saccade left
-    }
+    # specify mappings between exp conditions & event IDs
+            
+    # TODO - in new version of exp, can use hierarchical event IDs like this:
+    #event_id = {'HF/right': 2, 'HF/left': 3, 'LF/right': 4, 'LF/left': 5}
+    # https://mne.tools/stable/generated/mne.merge_events.html
+    # More examples: https://github.com/mne-tools/mne-python/issues/3599
+    if task == '_B1':
+        event_ids_stim_locked = {
+            "HF": 2,
+            "LF": 3,
+        }
+        event_ids_sac_locked = {
+            "right": 6,
+            "left": 7,
+        }
+    elif task == '_B2':
+       event_ids_stim_locked = {
+            "HF": 2,
+            "LF": 3,
+        }
+       event_ids_sac_locked = {}
+    elif task == '_B3' or task == '_B4':
+        event_ids_stim_locked = {
+            "all": 2,
+        }
+        event_ids_sac_locked = {
+            "right": 6,
+            "left": 7,
+        }
+
+    # sanity check: extract all trials for a particular cond (can check number of trials etc)
+    events_tmp = events[np.where(events[:, 2] == 2)[0]]
 
 
     #%% Adjust trigger timing based on photodetector channel
@@ -225,6 +251,9 @@ for counter, task in enumerate(tasks):
             pd_delta.append(
                 combined_events[index, 0] - combined_events[index - 1, 0] # find the time difference
             )
+    # for B4, there is an extra PD trigger at the end - remove this (only affects the histogram)
+    if task == '_B4' and pd_delta[-1] > 500:
+        pd_delta.pop(-1)
     # show histogram of PD delays
     n, bins, patches = plt.hist(
         x=pd_delta, bins="auto", color="#0504aa", alpha=0.7, rwidth=0.85
@@ -246,7 +275,7 @@ for counter, task in enumerate(tasks):
     # Set a clean upper y-axis limit.
     plt.ylim(ymax=np.ceil(maxfreq / 10) * 10 if maxfreq % 10 else maxfreq + 10)
 
-    # Use target events to align triggers & avoid outliers using z of 3
+    # Use target events to align triggers & avoid outliers using a z-value threshold of 3
     z = np.abs(stats.zscore(pd_delta))
     #TODO: check this part works correctly when we do have outliers!
     if [pd_delta[i] for i in np.where(z > 3)[0]]:
@@ -254,7 +283,12 @@ for counter, task in enumerate(tasks):
     else:
         tmax = 0
 
-    events_to_find = [2, 3] # target events
+    # TODO - update in new version of exp
+    if task == '_B1' or task == '_B2':
+        events_to_find = [2, 3] # target events
+    elif task == '_B3' or task == '_B4':
+        events_to_find = [2] # target events
+
     sfreq = raw.info["sfreq"]  # sampling rate
     tmin = -0.4  # PD occurs after trigger, hence negative
     fill_na = None  # the fill value for non-target
@@ -263,7 +297,7 @@ for counter, task in enumerate(tasks):
     # loop through events and replace PD events with event class identifier i.e. trigger number
     events_target = {}
     for event in events_to_find:
-        new_id = 20 + event
+        new_id = 20 + event # event IDs will now be 22 and 23, need to change it back afterwards
         events_target["event" + str(event)], lag = mne.event.define_target_events(
             combined_events,
             reference_id,
@@ -274,22 +308,33 @@ for counter, task in enumerate(tasks):
             new_id,
             fill_na,
         )
-    events = np.concatenate((events_target["event2"], events_target["event3"]))
 
-    event_ids = {
-        conds_for_stim_locked[0]: 22, # HF
-        conds_for_stim_locked[1]: 23, # LF
-    }
+    # TODO - update in new version of exp
+    if task == '_B1' or task == '_B2':
+        events_corrected = np.concatenate((events_target["event2"], events_target["event3"]))
+    elif task == '_B3' or task == '_B4':
+        events_corrected = events_target["event2"]
+    # note: events_corrected only contains the stim-locked events;
+    # no timing correction needed for saccade events, so just use original events array for those
 
+    # change the event IDs back to normal
+    for index, event in enumerate(events_corrected):
+        if event[2] == 22:
+            events_corrected[index, 2] = 2
+        if event[2] == 23:
+            events_corrected[index, 2] = 3
 
-    #%% === Sensor space analysis (ERFs), stimulus-locked === #
+            
+
+    #%% === Sensor space (ERF) analysis, stimulus-locked === #
 
     # epoching
     if os.path.exists(epochs_fname):
         epochs_resampled = mne.read_epochs(epochs_fname)
     else:
-        epochs = mne.Epochs(raw, events, event_id=event_ids, tmin=-0.1, tmax=0.5, preload=True)
-        epochs.equalize_event_counts(conds_for_stim_locked)
+        epochs = mne.Epochs(raw, events_corrected, event_id=event_ids_stim_locked, 
+            tmin=-0.1, tmax=0.41, preload=True)
+        epochs.equalize_event_counts(event_ids_stim_locked)
 
         # sanity check - PD triggers occur at 0ms
         mne.viz.plot_evoked(
@@ -297,30 +342,82 @@ for counter, task in enumerate(tasks):
         ) 
 
         # downsample to 100Hz
-        print("Original sampling rate:", epochs.info["sfreq"], "Hz")
         epochs_resampled = epochs.copy().resample(100, npad="auto")
-        print("New sampling rate:", epochs_resampled.info["sfreq"], "Hz")
 
         # save the epochs to file
         epochs_resampled.save(epochs_fname)
 
+
     # plot ERFs
     #mne.viz.plot_evoked(epochs_resampled.average(), gfp="only")
+        
+    # compute evoked for each cond
+    evokeds = []
+    for cond in epochs_resampled.event_id:
+        evokeds.append(epochs_resampled[cond].average())
+
+    # GFP plot (one line per condition)
+    '''
     fig = mne.viz.plot_compare_evokeds(
         [
-            epochs_resampled[conds_for_stim_locked[0]].average(),
-            epochs_resampled[conds_for_stim_locked[1]].average(),
+            epochs_resampled[list(event_ids_locked)[0]].average(),
+            epochs_resampled[list(event_ids_locked)[1]].average(),
         ]
     )
+    '''
+    fig = mne.viz.plot_compare_evokeds(evokeds)
     fig[0].savefig(ERFs_figure_fname)
 
-    #%% === Sensor space analysis (ERFs), saccade-locked === #
+    # butterfly plot with topography at peak time points
+    if task == '_B3' or task == '_B4':
+        fig1 = epochs_resampled.average().plot_joint() # avg over conds, as we don't need differentiate between right and left saccades
+        fig1.savefig(butterfly_figure_fname)
 
-    # epoching
+    # make a separate butterfly plot for each condition (e.g might be useful for B1 & B2)
+    '''
+    for evoked in evokeds:
+        fig2 = evoked.plot_joint()
+        fig2.savefig(butterfly_figure_fname[:-4] + '_(' + evoked.comment + ').png')
+    '''
 
-    # plot ERFs
 
-    
+    #%% === Sensor space (ERF) analysis, saccade-locked === #
+
+    if task != '_B2': # B2 (single LDT) doesn't have saccades
+
+        # epoching
+        if os.path.exists(epochs_fname_sac_locked):
+            epochs_sac_resampled = mne.read_epochs(epochs_fname_sac_locked)
+        else:
+            epochs_sac = mne.Epochs(raw, events, event_id=event_ids_sac_locked, # no timing correction needed for saccade triggers
+                tmin=-0.4, tmax=0.01, baseline=None, preload=True) # explicitly disable baseline correction (default setting is to use the entire period before time 0 as baseline)
+            epochs_sac.equalize_event_counts(event_ids_sac_locked)
+
+            # downsample to 100Hz
+            epochs_sac_resampled = epochs_sac.copy().resample(100, npad="auto")
+
+            # save the epochs to file
+            epochs_sac_resampled.save(epochs_fname_sac_locked)
+
+
+        # plot ERFs
+        #mne.viz.plot_evoked(epochs_sac_resampled.average(), gfp="only")
+        
+        # compute evoked for each cond
+        evokeds_sac = []
+        for cond in epochs_sac_resampled.event_id:
+            evokeds_sac.append(epochs_sac_resampled[cond].average())
+
+        # GFP plot (one line per condition)
+        fig = mne.viz.plot_compare_evokeds(evokeds_sac)
+        fig[0].savefig(ERFs_sac_figure_fname)
+
+        # butterfly plot with topography at peak time points
+        if task == '_B3' or task == '_B4':
+            fig1 = epochs_sac_resampled.average().plot_joint() # avg over conds, as we don't need differentiate between right and left saccades
+            fig1.savefig(butterfly_sac_figure_fname)
+
+
 
 # this is just for pausing the script (using a breakpoint), 
 # so that it doesn't exit immediately
