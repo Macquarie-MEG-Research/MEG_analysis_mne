@@ -14,7 +14,6 @@ import meegkit # for TSPCA
 import glob
 import matplotlib.pyplot as plt
 import numpy as np
-import copy
 from scipy import stats
 
 import my_preprocessing
@@ -27,9 +26,9 @@ import my_preprocessing
 
 
 # set up file and folder paths here
-exp_dir = "/mnt/d/Work/analysis_ME209/" #"/Volumes/DATA/RSG data/"
+exp_dir = "/Volumes/DATA/RSG data/"
 subject_MEG = '20240109_Pilot01_LY'
-tasks = ['_B4'] #'_B2' #''
+tasks = ['_B4'] #'_B2'
 
 # specify run options here
 run_name = '' #'_noICA' #''
@@ -218,7 +217,7 @@ for counter, task in enumerate(tasks):
         }
 
     # sanity check: extract all trials for a particular cond (can check number of trials etc)
-    events_tmp = events[np.where(events[:, 2] == 2)[0]]
+    #events_tmp = events[np.where(events[:, 2] == 2)[0]]
 
 
     #%% Adjust trigger timing based on photodetector channel
@@ -251,7 +250,7 @@ for counter, task in enumerate(tasks):
             pd_delta.append(
                 combined_events[index, 0] - combined_events[index - 1, 0] # find the time difference
             )
-    # for B4, there is an extra PD trigger at the end - remove this (only affects the histogram)
+    # for B4, there is an extra PD trigger at the end - remove this
     if task == '_B4' and pd_delta[-1] > 500:
         pd_delta.pop(-1)
     # show histogram of PD delays
