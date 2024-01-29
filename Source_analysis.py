@@ -64,7 +64,7 @@ source_method = "mne"
 #source_method = "beamformer_for_RNN_comparison"
 
 # type of source space (note: beamformer rqs volumetric source space)
-src_type = 'vol' #'surface'
+src_type = 'surface' #'vol'
 spacing = "oct6" # for 'surface' source space only
                  # use a recursively subdivided octahedron: 4 for speed, 6 for real analyses
 if src_type != 'surface':
@@ -73,20 +73,40 @@ if src_type != 'surface':
 # for RNN we need a sparse source space, specify the spacing below (pos)
 if source_method == "beamformer_for_RNN_comparison":
     #pos = 30 # use 30mm spacing -> produces about 54 vertices
-    #suffix = "54-sources"   
+    #suffix = "_54-sources"   
     pos = 52.3 # use 52.3mm spacing -> produces about 12 vertices
-    suffix = "12-sources"            
+    suffix = "_12-sources"            
 else: # for normal source analysis
     pos = 5 # default is 5mm -> produces more than 10000 vertices
     suffix = ""
 
 # set to False if you just want to run the whole script & save results
-SHOW_PLOTS = False 
+SHOW_PLOTS = False
 
 
 # specify which subjects to analyse
-subjects = ['G01','G02','G03','G04','G05','G06','G07','G08','G09','G10']
+subjects = ['G01','G02','G03','G04','G05','G06','G07','G08','G09','G10',
+            'G11','G12','G13','G14','G15','G16','G17','G18','G19','G20',
+            'G21','G22','G23','G24','G25','G26','G27','G28','G29','G30',
+            'G31','G32']
+# subject exclusion
+subjects.remove('G12')
 
+
+# specify the bad marker coils to be removed (up to 2 bad coils for each subject)
+bad_coils = {"G01": [0], 
+             "G02": [2],
+             "G06": [0],
+             "G08": [0],
+             "G13": [3],
+             "G18": [4],
+             "G24": [3],
+             "G28": [3],
+             "G29": [1],
+             "G32": [1]}
+
+
+# loop through the subjects we want to analyse
 for subject_MEG in subjects:
 
     #subject_MEG = 'G14' #'220112_p003' #'FTD0185_MEG1441'
@@ -101,7 +121,7 @@ for subject_MEG in subjects:
     results_dir = op.join(exp_dir, "results")
     subjects_dir = op.join(processing_dir, "mri")
     inner_skull = op.join(subjects_dir, subject, "bem", "inner_skull.surf")
-    src_fname = op.join(subjects_dir, subject, "bem", subject + "_" + suffix + "_" + spacing + src_type + "-src.fif") 
+    src_fname = op.join(subjects_dir, subject, "bem", subject + suffix + "_" + spacing + src_type + "-src.fif") 
 
     subject_dir_meg = op.join(processing_dir, "meg", subject_MEG)
     raw_fname = op.join(subject_dir_meg, subject_MEG + "_emptyroom-raw.fif") #"-raw.fif" 
@@ -110,19 +130,40 @@ for subject_MEG in subjects:
     epochs_fname = op.join(subject_dir_meg, subject_MEG + meg_task + run_name + "-epo.fif")
     fwd_fname = op.join(subject_dir_meg, subject_MEG + "_" + spacing + src_type + "-fwd.fif")
 
-    save_dir = op.join(subject_dir_meg, source_method + run_name, suffix)
+    save_dir = op.join(subject_dir_meg, source_method + '_' + src_type, suffix[1:])
     #os.system('mkdir -p ' + save_dir) # create the folder if needed
     filters_fname = op.join(save_dir, subject_MEG + meg_task + "-filters-lcmv.h5")
     filters_vec_fname = op.join(save_dir, subject_MEG + meg_task + "-filters_vec-lcmv.h5")
-    source_results_dir = op.join(results_dir, 'meg', 'source', meg_task[1:] + run_name, source_method)
+    source_results_dir = op.join(results_dir, 'meg', 'source', meg_task[1:] + run_name, source_method + '_' + src_type)
     stcs_filename = op.join(source_results_dir, subject_MEG)
     stcs_vec_filename = op.join(source_results_dir, subject_MEG + '_vec')
     figures_dir = op.join(source_results_dir, 'Figures') # where to save the figures for all subjects
-    
+    os.system('mkdir -p ' + figures_dir) # create the folder if needed
+
 
     # adjust mne options to fix rendering issues (only needed in Linux / WSL)
     mne.viz.set_3d_options(antialias = False, depth_peeling = False, 
                         smooth_shading = False, multi_samples = 1) 
+
+
+    # extract info from the raw file (will be used in multiple steps below)
+    file_raw = glob.glob(op.join(meg_dir, "*empty*.con"))[0]
+    file_elp = glob.glob(op.join(meg_dir, "*.elp"))[0]
+    file_hsp = glob.glob(op.join(meg_dir, "*.hsp"))[0]
+    file_mrk = glob.glob(op.join(meg_dir, "*ini.mrk"))[0] # use initial marker
+    
+    #info = mne.io.read_info(raw_fname) # this only supports fif file, and does not allow editing of elp & mrk (e.g. removing bad marker coils)
+    
+    # read in the mrk & elp ourselves, so we can remove the bad marker coils 
+    # before incorporating these info into the "raw" object
+    mrk = mne.io.kit.read_mrk(file_mrk)
+    elp = mne.io.kit.coreg._read_dig_kit(file_elp)
+    if subject_MEG in bad_coils: # if there are bad marker coils for this subject
+        mrk = np.delete(mrk, bad_coils[subject_MEG], 0)
+        elp = np.delete(elp, np.add(bad_coils[subject_MEG], 3), 0) # add 3 to the indices, as elp list contains fiducials as first 3 rows
+
+    raw = mne.io.read_raw_kit(file_raw, mrk=mrk, elp=elp, hsp=file_hsp) # use the edited mrk & elp, rather than supplying the filenames
+    info = raw.info
 
 
     # Follow the steps here:
@@ -137,36 +178,32 @@ for subject_MEG in subjects:
         os.system('mne watershed_bem -s ' + subject + ' -d ' + subjects_dir)
         os.system('mne setup_forward_model -s ' + subject + ' -d ' + subjects_dir + ' --homog --ico 4')
 
-    # specify some settings for plots (will be re-used below)
-    plot_bem_kwargs = dict(
-        subject=subject,
-        subjects_dir=subjects_dir,
-        brain_surfaces="white", # one or more brain surface to plot - should correspond to 
-                                # files in the subject’s surf directory
-        orientation="coronal",
-        slices=[50, 100, 150, 200],
-    )
-
     # plot the head surface (BEM) computed from MRI
     if SHOW_PLOTS:
-        mne.viz.plot_bem(**plot_bem_kwargs) # plot bem
-
+        plot_bem_kwargs = dict(
+            subject=subject,
+            subjects_dir=subjects_dir,
+            brain_surfaces="white", # one or more brain surface to plot - should correspond to 
+                                    # files in the subject's surf directory
+            orientation="coronal",
+            slices=[50, 100, 150, 200],
+        )
+        mne.viz.plot_bem(**plot_bem_kwargs) # plot bem  
+   
 
     # ===== Coregistration ===== #
-
-    # Coregister MRI scan with headshape from MEG digitisation 
+    # This aligns the MRI scan & the headshape from MEG digitisation into same space
 
     # For FIF files, hsp info are embedded in it, whereas for KIT data we have a separate .hsp file.
-    # So, convert the confile to FIF format first (to embed mrk & hsp), which can then be loaded during coreg.
+    # So, convert the confile to FIF format first (to embed hsp), which can then be loaded during coreg.
     # (Note: to save disk space, we just use the empty room confile here!)
     if not op.exists(raw_fname):
-        file_raw = glob.glob(op.join(meg_dir, "*empty*.con"))
-        file_elp = glob.glob(op.join(meg_dir, "*.elp"))
-        file_hsp = glob.glob(op.join(meg_dir, "*.hsp"))
-        file_mrk = glob.glob(op.join(meg_dir, "*.mrk"))
-        os.system('mne kit2fiff --input ' + file_raw[0] + ' --output ' + raw_fname + 
-        ' --mrk ' + file_mrk[0] + ' --elp ' + file_elp[0] + ' --hsp ' + file_hsp[0])
-
+        os.system('mne kit2fiff --input ' + file_raw + ' --output ' + raw_fname + 
+        ' --mrk ' + file_mrk + ' --elp ' + file_elp + ' --hsp ' + file_hsp)   
+        # note that bad marker coils are NOT excluded here (as we have to supply
+        # the filename, and the mrk file cannot be edited as plain text),
+        # but it shouldn't matter here as marker coils are not used for coreg
+    
     # Use the GUI for coreg, then save the results as -trans.fif
     if not op.exists(trans_fname):
         mne.gui.coregistration(subject=subject, subjects_dir=subjects_dir)
@@ -181,7 +218,6 @@ for subject_MEG in subjects:
 
     # Here we plot the dense head, which isn't used for BEM computations but
     # is useful for checking alignment after coregistration
-    info = mne.io.read_info(raw_fname) # only supports fif file? For con file, you may need to read in the raw first (mne.io.read_raw_kit) then use raw.info
     if SHOW_PLOTS:
         mne.viz.plot_alignment(
             info,
@@ -238,6 +274,14 @@ for subject_MEG in subjects:
     # check the source space
     print(src)
     if SHOW_PLOTS:
+        plot_bem_kwargs = dict(
+            subject=subject,
+            subjects_dir=subjects_dir,
+            brain_surfaces="white", # one or more brain surface to plot - should correspond to 
+                                    # files in the subject's surf directory
+            orientation="coronal",
+            slices=[50, 100, 150, 200],
+        )
         mne.viz.plot_bem(src=src, **plot_bem_kwargs)
 
     # check alignment
@@ -322,6 +366,22 @@ for subject_MEG in subjects:
     # Run sensor-space analysis script to obtain the epochs (or read from saved file)
     epochs = mne.read_epochs(epochs_fname)
     #epochs = epochs.apply_baseline((None, 0.)) # this is redundant as baseline correction was applied by default when constructing the mne.epochs object
+
+    # use the info from the epochs object, as it contains the 
+    # bad channels for each subject & task block
+    #info_new = epochs.info
+    # update relevant fields to ensure bad marker coils have been removed
+    # Note: this doesn't work - some of the following cannot be set directly:
+    #info_new['dig'] = info['dig']
+    #nfo_new['dev_head_t'] = info['dev_head_t']
+    #info_new['hpi_results'] = info['hpi_results']
+
+    # alt: just use the previous info object, but obtain the bad channels from epochs.info
+    info_new = info
+    info_new['bads'] = epochs.info['bads']
+
+
+    # compute evoked (averaged over all conditions)
     evoked_allconds = epochs.average()
     #evoked_allconds.plot_joint() # average ERF across all conds
 
@@ -341,10 +401,10 @@ for subject_MEG in subjects:
 
         noise_cov = mne.compute_covariance(epochs, tmin=-0.1, tmax=0,
                                         method=['shrunk','empirical'])
-        #fig_cov, fig_spectra = mne.viz.plot_cov(noise_cov, info)
+        #fig_cov, fig_spectra = mne.viz.plot_cov(noise_cov, info_new)
 
         inverse_operator = make_inverse_operator(
-            evoked_allconds.info, fwd, noise_cov)
+            info_new, fwd, noise_cov)
 
         for index, evoked in enumerate(evokeds):
             cond = evoked.comment
@@ -357,7 +417,7 @@ for subject_MEG in subjects:
                                         return_residual=True, verbose=True)
  
             # save the source estimates
-            stcs[cond].save(stcs_filename + '-' + cond)
+            stcs[cond].save(stcs_filename + '-' + cond, overwrite=True)
 
     else: # use beamformer
         # https://mne.tools/stable/auto_tutorials/inverse/50_beamformer_lcmv.html
@@ -372,13 +432,13 @@ for subject_MEG in subjects:
                                             method='empirical')
             noise_cov = mne.compute_covariance(epochs, tmin=-0.1, tmax=0,
                                             method='empirical')
-            #data_cov.plot(epochs.info)
+            #data_cov.plot(info_new)
 
             # compute the spatial filter (LCMV beamformer) - use common filter for all conds?
-            filters = make_lcmv(evoked_allconds.info, fwd, data_cov, reg=0.05,
+            filters = make_lcmv(info_new, fwd, data_cov, reg=0.05,
                                 noise_cov=noise_cov, pick_ori='max-power', # 1 estimate per voxel (only preserve the axis with max power)
                                 weight_norm='unit-noise-gain', rank=None)
-            filters_vec = make_lcmv(evoked_allconds.info, fwd, data_cov, reg=0.05,
+            filters_vec = make_lcmv(info_new, fwd, data_cov, reg=0.05,
                                     noise_cov=noise_cov, pick_ori='vector', # 3 estimates per voxel, corresponding to the 3 axes
                                     weight_norm='unit-noise-gain', rank=None)
             # save the filters for later
@@ -392,8 +452,8 @@ for subject_MEG in subjects:
             stcs_vec[cond] = apply_lcmv(evoked, filters_vec) # timecourses contain both positive & negative values
 
             # save the source estimates
-            stcs[cond].save(stcs_filename + '-' + cond)        
-            stcs_vec[cond].save(stcs_vec_filename + '-' + cond)
+            stcs[cond].save(stcs_filename + '-' + cond, overwrite=True)        
+            stcs_vec[cond].save(stcs_vec_filename + '-' + cond, overwrite=True)
 
             # can save the source timecourses (vertices x samples) as numpy array file
             if source_method == "beamformer_for_RNN_comparison":
@@ -418,15 +478,18 @@ for subject_MEG in subjects:
             fig.savefig(op.join(figures_dir, subject_MEG + meg_task + run_name + '-' + cond + '.png'))
             # also see: https://mne.tools/dev/auto_examples/visualization/publication_figure.html
 
-        elif src_type == 'surface':    
-            vertno_max, time_max = stcs[cond].get_peak(hemi='rh')
+        elif src_type == 'surface':  
+            hemi='lh' #'split'
+            vertno_max, time_max = stcs[cond].get_peak(hemi=hemi)
             surfer_kwargs = dict(
-                hemi='rh', subjects_dir=subjects_dir,
-                clim=dict(kind='value', lims=[8, 12, 15]), views='lateral',
-                initial_time=time_max, time_unit='s', size=(800, 800), smoothing_steps=10)
+                hemi=hemi, subjects_dir=subjects_dir, 
+                initial_time=time_max, 
+                time_unit='s', title=subject_MEG + ' - ' + cond,
+                views='lateral', size=(800, 800), smoothing_steps=10)
             brain = stcs[cond].plot(**surfer_kwargs)
-            brain.add_foci(vertno_max, coords_as_verts=True, hemi='rh', color='blue',
-                        scale_factor=0.6, alpha=0.5)
+            #brain.add_foci(vertno_max, coords_as_verts=True, hemi=hemi, 
+            #    color='blue', scale_factor=0.6, alpha=0.5)
+            brain.save_image(op.join(figures_dir, subject_MEG + meg_task + run_name + '-' + cond + '.png'))
         
         # 3d plot (heavy operation - can only do one plot at a time)
         '''
@@ -445,6 +508,9 @@ for subject_MEG in subjects:
         # i.e. what the show_traces option gives you in stcs_vec[cond].plot_3d)
         #stcs_vec[cond].magnitude().data
     
+    # close all figures before moving onto the next subject
+    mne.viz.close_all_3d_figures()
+
 
     '''
     # Q: 
