@@ -27,8 +27,8 @@ import my_preprocessing
 
 # set up file and folder paths here
 exp_dir = "/Volumes/DATA/RSG data/"
-subject_MEG = '20240109_Pilot01_LY'
-tasks = ['_B4'] #'_B2'
+subject_MEG = '20240202_Pilot04_RW' #'20240109_Pilot02_AV' #'20240109_Pilot01_LY'
+tasks = ['_dual'] # task names: '_dual', '_single', '_hash', '_dot'
 
 # specify run options here
 run_name = '' #'_noICA' #''
@@ -117,7 +117,7 @@ for counter, task in enumerate(tasks):
     events = mne.find_events(
         raw,
         output="onset",
-        consecutive="True", # tmp solution to deal with saccade triggers not being detected
+        consecutive=False, # True: tmp solution to deal with saccade triggers not being detected
         min_duration=0,
         shortest_event=1,  # 5 for adults
         mask=None,
@@ -128,18 +128,19 @@ for counter, task in enumerate(tasks):
     )
 
     # Check if saccade onset triggers have any delays (by comparing to eyetracking data)
+    # note: the code below is based on old triggers (i.e. Pilot 01 & 02 only)
     '''
     # find all stim onset & saccade onset triggers
     stim_onset = []
     saccade_onset = []
     for index, event in enumerate(events):
-        if task == '_B1':
+        if task == '_dual':
             if event[2] == 177 or event[2] == 178 or event[2] == 181: # stim onset trigger
                 stim_onset.append(event[0])
-        if task == '_B3':
+        if task == '_hash':
             if event[2] == 179: # stim onset trigger
                 stim_onset.append(event[0])
-        if task == '_B4':
+        if task == '_dot':
             if event[2] == 185: # stim onset trigger
                 stim_onset.append(event[0])
         if event[2] == 182 or event[2] == 183: # saccade onset trigger
@@ -164,56 +165,70 @@ for counter, task in enumerate(tasks):
     '''
 
     # recode event IDs so we can spot them more easily in the events array (optional)
-    # TODO - update the following when we have the new version of exp
-    if task == '_B1' or task == '_B2':
+    if task == '_dual':
         for index, event in enumerate(events):
+            # stim onset triggers
+            if event[2] == 177: # ch177 == MISC 18
+                events[index, 2] = 2 # HF, sac right
+            elif event[2] == 178:
+                events[index, 2] = 3 # HF, sac left
+            elif event[2] == 179:
+                events[index, 2] = 4 # LF, sac right
+            elif event[2] == 181:
+                events[index, 2] = 5 # LF, sac left
+            # saccade onset triggers
+            elif event[2] == 182:
+                events[index, 2] = 6 # HF, sac right
+            elif event[2] == 183:
+                events[index, 2] = 7 # HF, sac left
+            elif event[2] == 184:
+                events[index, 2] = 8 # LF, sac right
+            elif event[2] == 185:
+                events[index, 2] = 9 # LF, sac left
+    elif task == '_single':
+        for index, event in enumerate(events):
+            # stim onset triggers (there are no saccades in this task)
             if event[2] == 177: # ch177 == MISC 18
                 events[index, 2] = 2 # HF
             elif event[2] == 178: # ch178 == MISC 19
                 events[index, 2] = 3 # LF
-    elif task == '_B3': # hash saccade
+    elif task == '_hash' or task == '_dot': # these tasks share the same trigger channels
         for index, event in enumerate(events):
-            if event[2] == 179:
-                events[index, 2] = 2 # stim onset
-    elif task == '_B4': # dot saccade
-        for index, event in enumerate(events):
-            if event[2] == 185:
-                events[index, 2] = 2 # stim onset
-    # for all blocks, saccade triggers are on the same channels
-    for index, event in enumerate(events):
-        if event[2] == 182: # ch182 == MISC 23
-            events[index, 2] = 6 # saccade right
-        elif event[2] == 183: # ch183 == MISC 24
-            events[index, 2] = 7 # saccade left
+            # stim onset triggers
+            if event[2] == 177: # ch177 == MISC 18
+                events[index, 2] = 2 # sac right
+            elif event[2] == 178:
+                events[index, 2] = 3 # sac left
+            # saccade onset triggers
+            elif event[2] == 179:
+                events[index, 2] = 6 # sac right
+            elif event[2] == 181:
+                events[index, 2] = 7 # sac left
+    else:
+        print("Error: Task not recognised!")
 
-    # specify mappings between exp conditions & event IDs
-            
-    # TODO - in new version of exp, can use hierarchical event IDs like this:
-    #event_id = {'HF/right': 2, 'HF/left': 3, 'LF/right': 4, 'LF/left': 5}
+    # specify mappings between exp conditions & event IDs    
+    # can use hierarchical event IDs like this:
     # https://mne.tools/stable/generated/mne.merge_events.html
     # More examples: https://github.com/mne-tools/mne-python/issues/3599
-    if task == '_B1':
+    if task == '_dual':
         event_ids_stim_locked = {
-            "HF": 2,
-            "LF": 3,
+            'HF/right': 2, 'HF/left': 3, 'LF/right': 4, 'LF/left': 5
         }
         event_ids_sac_locked = {
-            "right": 6,
-            "left": 7,
+            'HF/right': 6, 'HF/left': 7, 'LF/right': 8, 'LF/left': 9
         }
-    elif task == '_B2':
+    elif task == '_single':
        event_ids_stim_locked = {
-            "HF": 2,
-            "LF": 3,
+            'HF': 2, 'LF': 3,
         }
        event_ids_sac_locked = {}
-    elif task == '_B3' or task == '_B4':
+    elif task == '_hash' or task == '_dot':
         event_ids_stim_locked = {
-            "all": 2,
+            "right": 2, "left": 3,
         }
         event_ids_sac_locked = {
-            "right": 6,
-            "left": 7,
+            "right": 6, "left": 7,
         }
 
     # sanity check: extract all trials for a particular cond (can check number of trials etc)
@@ -250,8 +265,8 @@ for counter, task in enumerate(tasks):
             pd_delta.append(
                 combined_events[index, 0] - combined_events[index - 1, 0] # find the time difference
             )
-    # for B4, there is an extra PD trigger at the end - remove this
-    if task == '_B4' and pd_delta[-1] > 500:
+    # for B4 (dot saccade), there is an extra PD trigger at the end - remove this
+    if task == '_dot' and pd_delta[-1] > 500:
         pd_delta.pop(-1)
     # show histogram of PD delays
     n, bins, patches = plt.hist(
@@ -282,11 +297,11 @@ for counter, task in enumerate(tasks):
     else:
         tmax = 0
 
-    # TODO - update in new version of exp
-    if task == '_B1' or task == '_B2':
-        events_to_find = [2, 3] # target events
-    elif task == '_B3' or task == '_B4':
-        events_to_find = [2] # target events
+    # we only need to correct for stim onset triggers
+    if task == '_dual': # 4 conditions in dual LDT
+        events_to_find = [2, 3, 4, 5] 
+    else:
+        events_to_find = [2, 3] 
 
     sfreq = raw.info["sfreq"]  # sampling rate
     tmin = -0.4  # PD occurs after trigger, hence negative
@@ -296,7 +311,7 @@ for counter, task in enumerate(tasks):
     # loop through events and replace PD events with event class identifier i.e. trigger number
     events_target = {}
     for event in events_to_find:
-        new_id = 20 + event # event IDs will now be 22 and 23, need to change it back afterwards
+        new_id = 20 + event # event IDs will now be 22, 23, etc, need to change it back afterwards
         events_target["event" + str(event)], lag = mne.event.define_target_events(
             combined_events,
             reference_id,
@@ -308,11 +323,10 @@ for counter, task in enumerate(tasks):
             fill_na,
         )
 
-    # TODO - update in new version of exp
-    if task == '_B1' or task == '_B2':
+    if task == '_dual': # 4 conditions in dual LDT
+        events_corrected = np.concatenate((events_target["event2"], events_target["event3"], events_target["event4"], events_target["event5"]))
+    else:
         events_corrected = np.concatenate((events_target["event2"], events_target["event3"]))
-    elif task == '_B3' or task == '_B4':
-        events_corrected = events_target["event2"]
     # note: events_corrected only contains the stim-locked events;
     # no timing correction needed for saccade events, so just use original events array for those
 
@@ -322,8 +336,12 @@ for counter, task in enumerate(tasks):
             events_corrected[index, 2] = 2
         if event[2] == 23:
             events_corrected[index, 2] = 3
+        if event[2] == 24:
+            events_corrected[index, 2] = 4
+        if event[2] == 25:
+            events_corrected[index, 2] = 5
 
-            
+
 
     #%% === Sensor space (ERF) analysis, stimulus-locked === #
 
@@ -368,8 +386,9 @@ for counter, task in enumerate(tasks):
     fig[0].savefig(ERFs_figure_fname)
 
     # butterfly plot with topography at peak time points
-    if task == '_B3' or task == '_B4':
+    if task == '_hash' or task == '_dot':
         fig1 = epochs_resampled.average().plot_joint() # avg over conds, as we don't need differentiate between right and left saccades
+        # can select the time points for topography: times = an array of float | 'auto' (evenly spaced)
         fig1.savefig(butterfly_figure_fname)
 
     # make a separate butterfly plot for each condition (e.g might be useful for B1 & B2)
@@ -382,7 +401,7 @@ for counter, task in enumerate(tasks):
 
     #%% === Sensor space (ERF) analysis, saccade-locked === #
 
-    if task != '_B2': # B2 (single LDT) doesn't have saccades
+    if task != '_single': # B2 (single LDT) doesn't have saccades
 
         # epoching
         if os.path.exists(epochs_fname_sac_locked):
@@ -412,7 +431,7 @@ for counter, task in enumerate(tasks):
         fig[0].savefig(ERFs_sac_figure_fname)
 
         # butterfly plot with topography at peak time points
-        if task == '_B3' or task == '_B4':
+        if task == '_hash' or task == '_dot':
             fig1 = epochs_sac_resampled.average().plot_joint() # avg over conds, as we don't need differentiate between right and left saccades
             fig1.savefig(butterfly_sac_figure_fname)
 
