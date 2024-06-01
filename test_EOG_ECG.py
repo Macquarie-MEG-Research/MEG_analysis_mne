@@ -17,8 +17,8 @@ import copy
 
 # set up file and folder paths here
 exp_dir = "/mnt/d/Work/analysis_ME211/"
-subject_MEG = 'test_EOG_ECG'
-task = 'oddball'; #'_1_oddball' #''
+subject_MEG = 'NB_20240529'
+task = 'visualgamma' #'oddball' #''
 run_name = '_TSPCA'
 
 # the paths below should be automatic
@@ -69,7 +69,7 @@ raw._data[0:160] = data_after_tspca.transpose()
 
 # Raw EEG data
 raw_eeg = mne.io.read_raw_brainvision(fname_eeg[0]).load_data()
-eeg_renames = {'1':'ECG', '2':'EOG'}
+eeg_renames = {'1':'EOG', '2':'ECG'}
 ch_types_map = dict(ECG="ecg", EOG="eog")
 raw_eeg.rename_channels(eeg_renames)
 raw_eeg.set_channel_types(ch_types_map)
@@ -141,7 +141,15 @@ raw.add_channels([raw_eeg])
 
 # browse data to identify bad channels
 raw.plot()
-raw.info["bads"] = ["MEG 043"]
+if len(raw.info["bads"]) == 0:
+    raw.info["bads"] = ["MEG 043"]
+
+# plot the power spectrum for sanity check
+#spectrum = raw.compute_psd()
+#spectrum.plot(average=True, picks="data", exclude="bads", amplitude=False,
+#              xscale="log"
+#              )
+
 
 # filtering
 raw.filter(l_freq=1, h_freq=30)
