@@ -17,8 +17,8 @@ import copy
 
 # set up file and folder paths here
 exp_dir = "/mnt/d/Work/analysis_ME211/"
-subject_MEG = 'NB_20240529'
-task = 'visualgamma' #'oddball' #''
+subject_MEG = 'Pilot01_XZ_20240606'
+task = 'oddball' #''
 run_name = '_TSPCA'
 
 # the paths below should be automatic
@@ -27,7 +27,7 @@ processing_dir = exp_dir + "processing/"
 results_dir = exp_dir + "results/"
 meg_dir = data_dir + subject_MEG + "/meg/"
 save_dir = processing_dir + "meg/" + subject_MEG + "/" # where to save the epoch files for each subject
-ica_fname = save_dir + subject_MEG + '-ica.fif'
+ica_fname = save_dir + subject_MEG + '_' + task + '-ica.fif'
 figures_dir = results_dir + 'meg/sensor/' + task + run_name + '/Figures/' # where to save the figures for all subjects
 epochs_fname = save_dir + subject_MEG + "_" + task + run_name + "-epo.fif"
 # create the folders if needed
@@ -69,7 +69,8 @@ raw._data[0:160] = data_after_tspca.transpose()
 
 # Raw EEG data
 raw_eeg = mne.io.read_raw_brainvision(fname_eeg[0]).load_data()
-eeg_renames = {'1':'EOG', '2':'ECG'}
+raw_eeg = raw_eeg.drop_channels('1') # bad connection - this channel was not used
+eeg_renames = {'2':'EOG', '3':'ECG'}
 ch_types_map = dict(ECG="ecg", EOG="eog")
 raw_eeg.rename_channels(eeg_renames)
 raw_eeg.set_channel_types(ch_types_map)
@@ -94,7 +95,10 @@ eeg_events = mne.events_from_annotations(
     raw_eeg,
 )[0]
 
-# find the first trigger on Ch182 (MEG) / Stimulus 22 (EEG)
+# find the first trigger in each task:
+# auditory oddball: Ch182 (MEG) / Stimulus 22 (EEG)
+# resting state: Ch186 (MEG) / Stimulus 90 (EEG)
+# visual gamma: Ch182 (MEG) / Stimulus 22 (EEG)
 meg_idx = np.where(events[:, 2] == 182)
 meg_samp = events[meg_idx[0][0], 0]
 eeg_idx = np.where(eeg_events[:, 2] == 22)
@@ -141,6 +145,7 @@ raw.add_channels([raw_eeg])
 
 # browse data to identify bad channels
 raw.plot()
+#raw.crop(tmax=600)
 if len(raw.info["bads"]) == 0:
     raw.info["bads"] = ["MEG 043"]
 
