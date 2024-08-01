@@ -6,6 +6,9 @@
 
 #######################################################################################
 
+print("hello")
+
+
 import os
 import mne
 import meegkit # for TSPCA
@@ -32,20 +35,36 @@ import my_preprocessing
 #os.chdir("/Users/mq20096022/Downloads/220112_p003/")
 
 # set up file and folder paths here
-exp_dir = "/mnt/d/Work/analysis_ME197/"
-subject_MEG = 'NB' #'230426_72956_S2' #'220112_p003'
-meg_task = '_oddball-24bit_CALM' #'_oddball' #''
+#exp_dir = "/mnt/d/Work/analysis_ME197/"
+exp_dir = "C:/sync/OneDrive - Macquarie University/Studies/19_MEG_Microdosing/analysis/meg/"
+subject_MEG = '220503_87225_S1' #'230426_72956_S2' #'220112_p003'
+meg_task = '_oddball' #'_oddball' #''
 
 # the paths below should be automatic
-data_dir = exp_dir + "data/"
+#data_dir = exp_dir + "data/"
+data_dir = "C:/sync/OneDrive - Macquarie University/Studies/19_MEG_Microdosing/data/ACQUISITION/"
 processing_dir = exp_dir + "processing/"
 results_dir = exp_dir + "results/"
-meg_dir = data_dir + subject_MEG + "/meg/"
-save_dir = processing_dir + "meg/" + subject_MEG + "/"
-figures_dir_meg = results_dir + 'meg/' + 'oddball' + '/Figures/' # where to save the figures for all subjects
+#meg_dir = data_dir + subject_MEG + "/meg/"
+meg_dir = data_dir + subject_MEG + "/"
+save_dir = processing_dir + subject_MEG + "/"
+figures_dir_meg = results_dir + 'oddball' + '/Figures/' # where to save the figures for all subjects
 epochs_fname = save_dir + subject_MEG + meg_task + "-epo.fif"
 ica_fname = save_dir + subject_MEG + meg_task + "-ica.fif"
-os.system('mkdir -p ' + save_dir) # create the folder if needed
+#os.system('mkdir -p ' + save_dir) # create the folder if needed
+if not os.path.exists(save_dir):
+    os.makedirs(save_dir)
+if not os.path.exists(figures_dir_meg):
+    os.makedirs(figures_dir_meg)
+print("exp_dir",exp_dir)
+print("data_dir",data_dir)
+print("processing_dir",processing_dir)
+print("results_dir",results_dir)
+print("meg_dir",meg_dir)
+print("save_dir",save_dir)
+print("figures_dir_meg",figures_dir_meg)
+print("epochs_fname",epochs_fname)
+print("ica_fname",ica_fname)
 
 
 #%% === Read raw data === #
@@ -79,11 +98,11 @@ data_after_tspca, idx = meegkit.tspca.tsr(noisy_data, noisy_ref)[0:2]
 raw._data[0:160] = data_after_tspca.transpose()
 
 # browse data to identify bad sections & bad channels
-raw.plot()
+#raw.plot()
 
 
 # Filtering & ICA
-raw = my_preprocessing.reject_artefact(raw, 0.1, 40, True, ica_fname)
+raw = my_preprocessing.reject_artefact(raw, 0.1, 40, False, ica_fname)
 
 
 #%% === Trigger detection & timing correction === #
@@ -259,7 +278,7 @@ else:
 
     # downsample to 100Hz
     print("Original sampling rate:", epochs.info["sfreq"], "Hz")
-    epochs_resampled = epochs.copy().resample(100, npad="auto")
+    epochs_resampled = epochs.copy().resample(250, npad="auto")
     print("New sampling rate:", epochs_resampled.info["sfreq"], "Hz")
 
     # save for later use (e.g. in Source_analysis script)
@@ -279,6 +298,83 @@ fig2 = mne.viz.plot_compare_evokeds(
 fig2[0].savefig(figures_dir_meg + subject_MEG + '_AEF_gfp.png')
 
 #############################################################################
+
+
+
+#epochs_small = epochs_resampled["deviant"][1:6]
+# THESE LINES RUN THE RANSAC ****************************************************************************
+from autoreject import Ransac
+rsc = Ransac()
+epochs_clean = rsc.fit_transform(epochs_resampled)  
+print('\n'.join(rsc.bad_chs_))
+#epochs_clean.save("C://sync//OneDrive - Macquarie University//Studies//19_MEG_Microdosing//analysis//meg//processing//220503_87225_S1//ransac_small-epo.fif")
+epochs_clean.save("C://sync//OneDrive - Macquarie University//Studies//19_MEG_Microdosing//analysis//meg//processing//"+ subject_MEG + "//ransac_big-epo.fif")
+
+epochs_resampled = mne.read_epochs(epochs_fname)
+#epochs_small = epochs_resampled["deviant"][1:6]
+epochs_clean = mne.read_epochs("C://sync//OneDrive - Macquarie University//Studies//19_MEG_Microdosing//analysis//meg//processing//"+ subject_MEG + "//ransac_big-epo.fif")
+
+ica = mne.preprocessing.read_ica("C://sync//OneDrive - Macquarie University//Studies//19_MEG_Microdosing//analysis//meg//processing//"+ subject_MEG + "//220503_87225_S1_oddball-ica.fif")
+ica.exclude = []
+# find which ICs match the ECG pattern
+ecg_indices, ecg_scores = ica.find_bads_ecg(raw, method="ctps", threshold="auto")
+ica.exclude = ecg_indices
+
+# barplot of ICA component "ECG match" scores
+ica.plot_scores(ecg_scores)
+
+# plot diagnostics
+ica.plot_properties(raw, picks=ecg_indices)
+
+# plot ICs applied to raw data, with ECG matches highlighted
+ica.plot_sources(raw, show_scrollbars=False)
+
+# plot ICs applied to the averaged ECG epochs, with ECG matches highlighted
+ica.plot_sources(ecg_evoked)
+
+
+
+
+# THESE LINES MADE THE RANSAC PLOT   *********************************************************************
+evoked = epochs_small.average()
+evoked_clean = epochs_clean.average()
+
+evoked.info['bads'] = ['MEG 005']
+evoked_clean.info['bads'] = ['MEG 005']
+
+from autoreject.utils import set_matplotlib_defaults  # noqa
+import matplotlib.pyplot as plt  # noqa
+set_matplotlib_defaults(plt)
+
+fig, axes = plt.subplots(2, 1, figsize=(6, 6))
+
+for ax in axes:
+    ax.tick_params(axis='x', which='both', bottom='off', top='off')
+    ax.tick_params(axis='y', which='both', left='off', right='off')
+
+ylim = dict(grad=(-170, 200))
+#evoked.pick_types(meg='grad', exclude=[])
+evoked.plot(exclude=[], axes=axes[0], ylim=ylim, show=False)
+axes[0].set_title('Before RANSAC')
+#evoked_clean.pick_types(meg='grad', exclude=[])
+evoked_clean.plot(exclude=[], axes=axes[1], ylim=ylim)
+axes[1].set_title('After RANSAC')
+#fig.tight_layout()
+
+fig3 = mne.viz.plot_compare_evokeds(
+    [
+        epochs_small.average(),
+        epochs_clean.average(),
+    ]
+)
+
+
+
+from autoreject import AutoReject
+
+ar = AutoReject()
+
+epochs_clean = ar.fit_transform(epochs_resampled)
 
 epochs_resampled.pick_types(meg=True, exclude="bads")
 X = epochs_resampled.get_data()  # MEG signals: n_epochs, n_channels, n_times
