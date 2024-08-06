@@ -27,12 +27,16 @@ import my_preprocessing
 
 # set up file and folder paths here
 exp_dir = "/Volumes/DATA/RSG data/"
+#exp_dir = "/mnt/d/Work/analysis_ME209/"
 subject_MEG = '20240202_Pilot04_RW' #'20240109_Pilot02_AV' #'20240109_Pilot01_LY'
 tasks = ['_dual'] # task names: '_dual', '_single', '_hash', '_dot'
 
 # specify run options here
 run_name = '' #'_noICA' #''
 do_ICA = True
+# filtering settings
+l_freq = 0.1
+h_freq = 30
 
 
 # the paths below should be automatic
@@ -86,12 +90,16 @@ for counter, task in enumerate(tasks):
     data_after_tspca, idx = meegkit.tspca.tsr(noisy_data, noisy_ref)[0:2]
     raw._data[0:160] = data_after_tspca.transpose()
 
+
+    # filtering
+    raw.filter(l_freq=l_freq, h_freq=h_freq)
+
     # browse data to identify bad sections & bad channels
     raw.plot()
 
 
-    # Filtering & ICA
-    raw = my_preprocessing.reject_artefact(raw, 0.1, 40, do_ICA, ica_fname)
+    # ICA
+    raw = my_preprocessing.reject_artefact(raw, l_freq, h_freq, do_ICA, ica_fname)
 
 
     #%% === Trigger detection & timing correction === #
