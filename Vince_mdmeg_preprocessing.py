@@ -8,7 +8,6 @@
 17.1.1.4.	Extract epochs
 17.1.1.5.	Automated noisy channel identification and interpolation using RANSAC
 17.1.1.6.	Automated artifact noise removal by ICA based on correlations of ICA components with MEG sensors EOG artifacts and ECG related components using cross-trial phase statistic
-
 '''
 
 import os
@@ -20,34 +19,22 @@ import numpy as np
 import copy
 
 from mne.preprocessing import find_bad_channels_maxwell
-#from autoreject import get_rejection_threshold  # noqa
-#from autoreject import Ransac  # noqa
-#from autoreject.utils import interpolate_bads  # noqa
-from mne.decoding import EMS
+from autoreject import get_rejection_threshold  # noqa
+from autoreject import Ransac  # noqa
+from autoreject.utils import interpolate_bads  # noqa
 
-import my_preprocessing
-
-# We can use the `decim` parameter to only take every nth time slice.
-# This speeds up the computation time. Note however that for low sampling
-# rates and high decimation parameters, you might not detect "peaky artifacts"
-# (with a fast timecourse) in your data. A low amount of decimation however is
-# almost always beneficial at no decrease of accuracy.
-
-#os.chdir("/Users/mq20096022/Downloads/MD_pilot1/")
-#os.chdir("/Users/mq20096022/Downloads/220112_p003/")
 
 # set up file and folder paths here
 #exp_dir = "/mnt/d/Work/analysis_ME197/"
 exp_dir = "C:/sync/OneDrive - Macquarie University/Studies/19_MEG_Microdosing/analysis/meg/"
 subject_MEG = '220503_87225_S1' #'230426_72956_S2' #'220112_p003'
-meg_task = '_oddball' #'_oddball' #''
+meg_task = '_oddball' #''
 
 # the paths below should be automatic
 #data_dir = exp_dir + "data/"
 data_dir = "C:/sync/OneDrive - Macquarie University/Studies/19_MEG_Microdosing/data/ACQUISITION/"
 processing_dir = exp_dir + "processing/"
 results_dir = exp_dir + "results/"
-#meg_dir = data_dir + subject_MEG + "/meg/"
 meg_dir = data_dir + subject_MEG + "/"
 save_dir = processing_dir + subject_MEG + "/"
 figures_dir_meg = results_dir + 'oddball' + '/Figures/' # where to save the figures for all subjects
@@ -92,7 +79,10 @@ raw = mne.io.read_raw_kit(
     allow_unknown_format=False,
     verbose=True,
 )
+
+#TEMP: crop for now to speed up processing
 raw.crop(tmax=120)
+
 # Apply TSPCA for noise reduction
 print("Starting TSPCA")
 noisy_data = raw.get_data(picks="meg").transpose()
@@ -109,6 +99,8 @@ print("Starting filter")
 raw.filter(l_freq=0.1, h_freq=40)
 print("Finished filter")
 
+# browse data
+#raw.plot()
 
 print("Finding events")
 # Finding events
@@ -137,9 +129,9 @@ for idx, event in enumerate(std_dev_bool):
         if events[idx - 1, 2] != 2:
             events[idx - 1, 2] = 1 # code previous trial as '1'
 
-# specify the event IDS (these will be used during epoching)
+# specify the event IDs (these will be used during epoching)
 event_ids = {
-    "standard": 1,
+    "pre-deviant": 1,
     "deviant": 2,
 }
 
@@ -204,17 +196,20 @@ plt.xlim(test_time-span, test_time+span)
 plt.show()
 '''
 
+# if we have downsampled already, need to adjust the indices
+decim = 1000 / raw.info['sfreq']
+
 # apply timing correction onto the events array
 events_corrected = copy.copy(events) # work on a copy so we don't affect the original
 
 # Missing AD triggers can be handled:
-# if there's an AD trigger between 100-200ms after normal trigger (this ensures 
+# if there's an AD trigger within 200ms following normal trigger (this ensures 
 # we've got the correct trial), update to AD timing;
 # if there's no AD trigger in this time range, discard the trial
 AD_delta = []
 missing = [] # keep track of the trials to discard (due to missing AD trigger)
 for i in range(events.shape[0]):
-    idx = np.where((stim_tps > events[i,0]) & (stim_tps <= events[i,0]+200))
+    idx = np.where((stim_tps > events[i,0]) & (stim_tps <= events[i,0] + 200/decim))
     if len(idx[0]): # if an AD trigger exists within 200ms of trigger channel
         idx = idx[0][0] # use the first AD trigger (if there are multiple)
         AD_delta.append(stim_tps[idx] - events[i,0]) # keep track of audio delay values (for histogram)
@@ -226,6 +221,7 @@ events_corrected = np.delete(events_corrected, missing, 0)
 print("Could not correct", len(missing), "events - these were discarded!")
 
 # histogram showing the distribution of audio delays
+AD_delta = np.array(AD_delta) * decim
 n, bins, patches = plt.hist(
     x=AD_delta, bins="auto", color="#0504aa", alpha=0.7, rwidth=0.85
 )
@@ -247,7 +243,90 @@ maxfreq = n.max()
 plt.ylim(ymax=np.ceil(maxfreq / 10) * 10 if maxfreq % 10 else maxfreq + 10)
 plt.show()
 
+# a simple plot for testing purposes
+#X = range(10)
+#plt.plot(X, [x*x for x in X])
+#plt.show()
 
-X = range(10)
-plt.plot(X, [x*x for x in X])
-plt.show()
+
+print("Starting epoching")
+epochs = mne.Epochs(raw, events_corrected, event_id=event_ids, tmin=-0.1, tmax=0.41, preload=True)
+conds_we_care_about = ["pre-deviant", "deviant"]
+epochs.equalize_event_counts(conds_we_care_about)
+print("Finished epoching")
+
+
+print("Starting RANSAC")
+rsc = Ransac()
+epochs = rsc.fit_transform(epochs)
+print('\n'.join(rsc.bad_chs_)) # print the bad channels identified by RANSAC
+print("Finished RANSAC")
+
+
+print("Starting ICA")
+if os.path.exists(ica_fname):
+    ica = mne.preprocessing.read_ica(ica_fname)
+else:
+    # filter again (1Hz high-pass) before ICA?
+    # probably only appropriate for continuous data
+    
+    # could use 'autoreject' to compute a threshold for removing large noise
+    '''
+    reject = get_rejection_threshold(epochs)
+    reject # print the result
+    # remove large noise before running ICA
+    #epochs.load_data() # to avoid reading epochs from disk multiple times
+    epochs.drop_bad(reject=reject)
+    '''
+    
+    # run ICA
+    ica = mne.preprocessing.ICA(n_components=60, max_iter="auto", random_state=97)
+    ica.fit(epochs)
+    ica.save(ica_fname)
+print("Finished ICA")
+
+
+# Automated artifact removal by ICA, based on correlations of ICA components with 
+# MEG sensors EOG artifacts and ECG related components using cross-trial phase statistic
+print("Starting ICA component rejection")
+# plot ICA results
+#ica.plot_sources(epochs) # plot IC time series
+#ica.plot_components() # plot IC topography
+
+# find which ICs match the ECG pattern
+ecg_indices, ecg_scores = ica.find_bads_ecg(epochs, method="ctps", threshold="auto")
+# barplot of ICA component "ECG match" scores
+ica.plot_scores(ecg_scores)
+# plot diagnostics
+ica.plot_properties(epochs, picks=ecg_indices)
+# plot ICs applied to epochs, with ECG matches highlighted
+ica.plot_sources(epochs, show_scrollbars=False)
+
+#TODO: find which ICs match the EOG pattern
+#eog_indices, eog_scores = ica.find_bads_eog(epochs, ch_name=??)
+
+# set which components to reject
+ica.exclude = ecg_indices # should be: eog_indices + ecg_indices
+
+# Compare data before & after IC rejection
+epochs_orig = copy.deepcopy(epochs)
+epochs_orig.plot(title='before ICA')
+ica.apply(epochs) # Note: data will be modified in-place
+epochs.plot(title='after ICA')
+
+# save the clean epochs
+epochs.save(epochs_fname, overwrite=True)
+
+print("Finished ICA component rejection")
+
+
+# plot ERFs
+fig = epochs.average().plot(spatial_colors=True, gfp=True)
+fig.savefig(figures_dir_meg + subject_MEG + '_AEF_butterfly.png')
+fig2 = mne.viz.plot_compare_evokeds(
+    [
+        epochs["pre-deviant"].average(),
+        epochs["deviant"].average(),
+    ]
+)
+fig2[0].savefig(figures_dir_meg + subject_MEG + '_AEF_gfp.png')
