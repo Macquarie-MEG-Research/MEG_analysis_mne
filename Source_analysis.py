@@ -54,12 +54,12 @@ from mne.minimum_norm import make_inverse_operator, apply_inverse
 
 
 # set up file and folder paths here
-exp_dir = '/mnt/d/Work/analysis_ME206/' #'/home/jzhu/analysis_mne/'
-meg_task = '_localiser' #'_1_oddball' #''
-run_name = '_TSPCA'
+exp_dir = '/mnt/d/Work/analysis_ME209/' #'/home/jzhu/analysis_mne/'
+meg_task = '_dual_stim' #'_localiser' #'_1_oddball' #''
+run_name = '' #'_TSPCA'
 
 # specify a name for this run (to save intermediate processing files)
-source_method = "mne"
+source_method = "dSPM"
 #source_method = "beamformer"
 #source_method = "beamformer_for_RNN_comparison"
 
@@ -85,15 +85,20 @@ SHOW_PLOTS = False
 
 
 # specify which subjects to analyse
+subjects = ['20240202_Pilot04_RW', '20240209_Pilot07_AB']
+
+'''
 subjects = ['G01','G02','G03','G04','G05','G06','G07','G08','G09','G10',
             'G11','G12','G13','G14','G15','G16','G17','G18','G19','G20',
             'G21','G22','G23','G24','G25','G26','G27','G28','G29','G30',
             'G31','G32']
 # subject exclusion
 subjects.remove('G12')
-
+'''
 
 # specify the bad marker coils to be removed (up to 2 bad coils for each subject)
+bad_coils = {}
+'''
 bad_coils = {"G01": [0], 
              "G02": [2],
              "G06": [0],
@@ -104,6 +109,11 @@ bad_coils = {"G01": [0],
              "G28": [3],
              "G29": [1],
              "G32": [1]}
+'''
+
+# adjust mne options to fix rendering issues (only needed in Linux / WSL)
+mne.viz.set_3d_options(antialias = False, depth_peeling = False, 
+                    smooth_shading = False, multi_samples = 1) 
 
 
 # loop through the subjects we want to analyse
@@ -119,7 +129,7 @@ for subject_MEG in subjects:
     meg_dir = op.join(data_dir, subject_MEG, "meg")
     processing_dir = op.join(exp_dir, "processing")
     results_dir = op.join(exp_dir, "results")
-    subjects_dir = op.join(processing_dir, "mri")
+    subjects_dir = op.join('/mnt/d/Work/analysis_ME206/processing', "mri")
     inner_skull = op.join(subjects_dir, subject, "bem", "inner_skull.surf")
     src_fname = op.join(subjects_dir, subject, "bem", subject + suffix + "_" + spacing + src_type + "-src.fif") 
 
@@ -138,12 +148,9 @@ for subject_MEG in subjects:
     stcs_filename = op.join(source_results_dir, subject_MEG)
     stcs_vec_filename = op.join(source_results_dir, subject_MEG + '_vec')
     figures_dir = op.join(source_results_dir, 'Figures') # where to save the figures for all subjects
+    #figures_dir = op.join(results_dir, 'meg', 'source', 'Figures') # where to save the figures for all subjects
+    os.system('mkdir -p ' + source_results_dir)
     os.system('mkdir -p ' + figures_dir) # create the folder if needed
-
-
-    # adjust mne options to fix rendering issues (only needed in Linux / WSL)
-    mne.viz.set_3d_options(antialias = False, depth_peeling = False, 
-                        smooth_shading = False, multi_samples = 1) 
 
 
     # extract info from the raw file (will be used in multiple steps below)
@@ -156,13 +163,17 @@ for subject_MEG in subjects:
     
     # read in the mrk & elp ourselves, so we can remove the bad marker coils 
     # before incorporating these info into the "raw" object
+    '''
     mrk = mne.io.kit.read_mrk(file_mrk)
     elp = mne.io.kit.coreg._read_dig_kit(file_elp)
     if subject_MEG in bad_coils: # if there are bad marker coils for this subject
         mrk = np.delete(mrk, bad_coils[subject_MEG], 0)
-        elp = np.delete(elp, np.add(bad_coils[subject_MEG], 3), 0) # add 3 to the indices, as elp list contains fiducials as first 3 rows
+        elp = np.delete(elp, np.array(bad_coils[subject_MEG] + 3), 0) # add 3 to the indices, as elp list contains fiducials as first 3 rows
 
     raw = mne.io.read_raw_kit(file_raw, mrk=mrk, elp=elp, hsp=file_hsp) # use the edited mrk & elp, rather than supplying the filenames
+    info = raw.info
+    '''
+    raw = mne.io.read_raw_kit(file_raw, mrk=file_mrk, elp=file_elp, hsp=file_hsp)
     info = raw.info
 
 
@@ -396,7 +407,7 @@ for subject_MEG in subjects:
     stcs_vec = dict()
 
     # which method to use?
-    if source_method == 'mne':
+    if source_method == 'dSPM' or 'mne':
         # https://mne.tools/stable/auto_tutorials/inverse/30_mne_dspm_loreta.html
 
         noise_cov = mne.compute_covariance(epochs, tmin=-0.1, tmax=0,
@@ -409,11 +420,10 @@ for subject_MEG in subjects:
         for index, evoked in enumerate(evokeds):
             cond = evoked.comment
 
-            method = "MNE"
             snr = 3.
             lambda2 = 1. / snr ** 2
             stcs[cond], residual = apply_inverse(evoked, inverse_operator, lambda2,
-                                        method=method, pick_ori=None,
+                                        method=source_method, pick_ori=None,
                                         return_residual=True, verbose=True)
  
             # save the source estimates
@@ -479,18 +489,29 @@ for subject_MEG in subjects:
             # also see: https://mne.tools/dev/auto_examples/visualization/publication_figure.html
 
         elif src_type == 'surface':  
-            hemi='lh' #'split'
-            vertno_max, time_max = stcs[cond].get_peak(hemi=hemi)
+            hemi='both'
+            #vertno_max, time_max = stcs[cond].get_peak(hemi=hemi, tmin=0.1, tmax=0.27)
+            initial_time = 0.16 #time_max
             surfer_kwargs = dict(
-                hemi=hemi, subjects_dir=subjects_dir, 
-                initial_time=time_max, 
+                hemi=hemi, subjects_dir=subjects_dir,
+                initial_time=initial_time, 
                 time_unit='s', title=subject_MEG + ' - ' + cond,
-                views='lateral', size=(800, 800), smoothing_steps=10)
+                views=['caudal','ventral','lateral','medial'], 
+                show_traces=False, # use False to avoid having the blue dot (peak vertex) showing up on the brain
+                smoothing_steps=10)
             brain = stcs[cond].plot(**surfer_kwargs)
             #brain.add_foci(vertno_max, coords_as_verts=True, hemi=hemi, 
             #    color='blue', scale_factor=0.6, alpha=0.5)
-            brain.save_image(op.join(figures_dir, subject_MEG + meg_task + run_name + '-' + cond + '.png'))
-        
+            #brain.save_image(op.join(figures_dir, subject_MEG + meg_task + run_name + '-' + cond + '.png'))
+            brain.save_movie(op.join(figures_dir, subject_MEG + meg_task + run_name + '-' + cond + '-both.mov'), 
+                tmin=0, tmax=0.35, interpolation='linear',
+                time_dilation=50, time_viewer=True)
+
+            # Note: if there are any issues with the plot/movie (e.g. showing 
+            # horizontal bands), it's probably a rendering issue in Linux. 
+            # Try running this script in Windows/Mac!
+
+
         # 3d plot (heavy operation - can only do one plot at a time)
         '''
         kwargs = dict(src=src, subject=subject, subjects_dir=subjects_dir, verbose=True,
@@ -510,6 +531,82 @@ for subject_MEG in subjects:
     
     # close all figures before moving onto the next subject
     mne.viz.close_all_3d_figures()
+
+
+
+    # = Extract ROI time course from source estimates =
+
+    conds = ['match','mm1','mm2','mm3','mm4']
+    avgovertime_table = [] # table to contain the "average over time" values for each ROI
+    avgovertime_table.append([""] + conds) # put cond names (i.e. headings) in first row
+
+    # load source space
+    src = mne.read_source_spaces(src_fname)
+
+
+    # for surface source space, we need to create the Label object first
+    # by reading from .annot or .label file
+    # Can't use the mri file like we do for vol source space, as extract_label_time_course() will throw an error
+    # https://mne.tools/stable/generated/mne.extract_label_time_course.html
+
+    # Get labels for FreeSurfer 'aparc' cortical parcellation (69 labels)
+    # https://freesurfer.net/fswiki/CorticalParcellation
+    labels_parc = mne.read_labels_from_annot(subject, parc='aparc', subjects_dir=subjects_dir) # read all labels from annot file
+    labels = [labels_parc[36] + labels_parc[38] + labels_parc[40], labels_parc[60]] # left IFG (combine 3 labels), left STG
+
+    # or use 'aparc.a2009s' parcellation (150 labels)
+    #labels_parc = mne.read_labels_from_annot(subject, parc='aparc.a2009s', subjects_dir=subjects_dir)
+    #labels = [
+    #    labels_parc[18]+labels_parc[20], labels_parc[19]+labels_parc[21], labels_parc[50], labels_parc[51], 
+    #    labels_parc[58], labels_parc[59], labels_parc[66], labels_parc[67], labels_parc[84], labels_parc[85], labels_parc[144], labels_parc[145]
+    #] # change these as needed
+
+    # or read a single label (e.g. V1, BA44, etc)
+    #labels_parc = mne.read_label(op.join(subjects_dir, subject, 'label', 'lh.V1.label'))
+
+
+    for label in labels:
+        label_name = label.name 
+        # or set a custom name for combined labels
+        if label_name[0:15] == 'parsopercularis':
+            label_name = 'inferiorfrontal-lh'
+
+        avgovertime_row = [label_name] # add ROI name in first column
+        os.system(f'mkdir -p {op.join(figures_dir, label_name)}')
+
+        # Plot ROI time series
+        fig, axes = plt.subplots(1, layout="constrained")    
+        for cond in conds:
+            stc_file = stcs_filename + '-' + cond + "-lh.stc"
+            stc = mne.read_source_estimate(stc_file)
+            label_ts = mne.extract_label_time_course(
+                [stc], label, src, mode="auto", allow_empty=True
+            )
+            axes.plot(1e3 * stc.times, label_ts[0][0, :], label=cond)
+
+            # Average over time
+            time_interval = range(80,101)
+            #stc.times[time_interval] # verify this corresponds to 300-500ms
+            avg = np.mean(label_ts[0][0][time_interval], axis=0)
+            avgovertime_row.append(avg)
+
+        axes.axvline(linestyle='--') # add verticle line at time 0
+        axes.set(xlabel="Time (ms)", ylabel="MNE current (nAm)")
+        axes.set(title=label_name)
+        axes.legend()
+
+        fig.savefig(op.join(figures_dir, label_name, subject_MEG + ".png"))
+        plt.close(fig)
+
+        # add row to table
+        avgovertime_table.append(avgovertime_row)
+
+        # write table to file
+        avgovertime_dir = op.join(source_results_dir, "ROI_avgovertime")
+        os.system(f'mkdir -p {avgovertime_dir}')
+        with open(op.join(avgovertime_dir, subject_MEG + ".txt"), "w") as file:
+            for row in avgovertime_table:
+                file.write("\t".join(map(str, row)) + "\n")
 
 
     '''
@@ -539,6 +636,7 @@ for subject_MEG in subjects:
         for cond, value in stcs.items():
             roi_timecourse = np.squeeze((stcs[cond]**2).extract_label_time_course(
                 (fname_aseg, rois), src=src, mode=mode)**0.5) # use RMS (square then average then sqrt)
+                # Note: this only works for volumetric source space; for surface source result, need to supply the Label objects (see mne doc)
             ax.plot(stcs[cond].times, roi_timecourse, lw=2., alpha=0.5, label=cond)
             ax.set(xlim=stcs[cond].times[[0, -1]],
                 xlabel='Time (s)', ylabel='Activation')
