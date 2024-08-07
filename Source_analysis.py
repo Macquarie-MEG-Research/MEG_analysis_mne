@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 #
-# MEG source reconstruction using LCMV beamformer 
+# MEG source reconstruction 
 # (can use individual MRI or fsaverage)
 #
 # Authors: Paul Sowman, Judy Zhu
@@ -55,11 +55,12 @@ from mne.minimum_norm import make_inverse_operator, apply_inverse
 
 # set up file and folder paths here
 exp_dir = '/mnt/d/Work/analysis_ME209/' #'/home/jzhu/analysis_mne/'
+subjects_dir = '/mnt/d/Work/analysis_ME206/processing/mri' # folder containing the processed MRI files
 meg_task = '_dual_stim' #'_localiser' #'_1_oddball' #''
 run_name = '' #'_TSPCA'
 
 # specify a name for this run (to save intermediate processing files)
-source_method = "dSPM"
+source_method = "dSPM" #"mne"
 #source_method = "beamformer"
 #source_method = "beamformer_for_RNN_comparison"
 
@@ -129,7 +130,6 @@ for subject_MEG in subjects:
     meg_dir = op.join(data_dir, subject_MEG, "meg")
     processing_dir = op.join(exp_dir, "processing")
     results_dir = op.join(exp_dir, "results")
-    subjects_dir = op.join('/mnt/d/Work/analysis_ME206/processing', "mri")
     inner_skull = op.join(subjects_dir, subject, "bem", "inner_skull.surf")
     src_fname = op.join(subjects_dir, subject, "bem", subject + suffix + "_" + spacing + src_type + "-src.fif") 
 
@@ -401,6 +401,15 @@ for subject_MEG in subjects:
     for cond in epochs.event_id:
         evokeds.append(epochs[cond].average())
 
+    # ME209 - use combined conditions for left & right saccades
+    if '_dual' in meg_task or 'single' in meg_task:
+        evokeds = []
+        conds_combined = ['HF', 'LF']
+        for cond in conds_combined:
+            evoked = epochs[cond].average()
+            evoked.comment = cond
+            evokeds.append(evoked)
+
 
     # compute source timecourses
     stcs = dict()
@@ -410,7 +419,15 @@ for subject_MEG in subjects:
     if source_method == 'dSPM' or 'mne':
         # https://mne.tools/stable/auto_tutorials/inverse/30_mne_dspm_loreta.html
 
-        noise_cov = mne.compute_covariance(epochs, tmin=-0.1, tmax=0,
+        # specify the time interval for calculating noise cov matrix
+        if '_sac' in meg_task: # saccade-locked analysis
+            tmin = -0.4
+            tmax = -0.3
+        else: # stimulus-locked analysis
+            tmin = -0.1
+            tmax = 0
+        
+        noise_cov = mne.compute_covariance(epochs, tmin=tmin, tmax=tmax,
                                         method=['shrunk','empirical'])
         #fig_cov, fig_spectra = mne.viz.plot_cov(noise_cov, info_new)
 
@@ -419,6 +436,7 @@ for subject_MEG in subjects:
 
         for index, evoked in enumerate(evokeds):
             cond = evoked.comment
+            cond_name = cond.replace('/', '_') # if there are slashes in the cond name, replace with underscore
 
             snr = 3.
             lambda2 = 1. / snr ** 2
@@ -427,7 +445,7 @@ for subject_MEG in subjects:
                                         return_residual=True, verbose=True)
  
             # save the source estimates
-            stcs[cond].save(stcs_filename + '-' + cond, overwrite=True)
+            stcs[cond].save(stcs_filename + '-' + cond_name, overwrite=True)
 
     else: # use beamformer
         # https://mne.tools/stable/auto_tutorials/inverse/50_beamformer_lcmv.html
@@ -478,6 +496,7 @@ for subject_MEG in subjects:
     # Plot the source timecourses
     for index, evoked in enumerate(evokeds):
         cond = evoked.comment
+        cond_name = cond.replace('/', '_') # if there are slashes in the cond name, replace with underscore
 
         # depending on the src type, it will create diff types of plots
         if src_type == 'vol':
@@ -485,7 +504,7 @@ for subject_MEG in subjects:
                 subject=subject, subjects_dir=subjects_dir, verbose=True,
                 #mode='glass_brain',
                 initial_time=0.1)
-            fig.savefig(op.join(figures_dir, subject_MEG + meg_task + run_name + '-' + cond + '.png'))
+            fig.savefig(op.join(figures_dir, subject_MEG + meg_task + run_name + '-' + cond_name + '.png'))
             # also see: https://mne.tools/dev/auto_examples/visualization/publication_figure.html
 
         elif src_type == 'surface':  
@@ -499,12 +518,19 @@ for subject_MEG in subjects:
                 views=['caudal','ventral','lateral','medial'], 
                 show_traces=False, # use False to avoid having the blue dot (peak vertex) showing up on the brain
                 smoothing_steps=10)
+            # specify the time window for movies
+            if '_sac' in meg_task: # saccade-locked analysis
+                tmin = -0.3
+                tmax = 0
+            else: # stimulus-locked analysis
+                tmin = 0
+                tmax = 0.35
             brain = stcs[cond].plot(**surfer_kwargs)
             #brain.add_foci(vertno_max, coords_as_verts=True, hemi=hemi, 
             #    color='blue', scale_factor=0.6, alpha=0.5)
-            #brain.save_image(op.join(figures_dir, subject_MEG + meg_task + run_name + '-' + cond + '.png'))
-            brain.save_movie(op.join(figures_dir, subject_MEG + meg_task + run_name + '-' + cond + '-both.mov'), 
-                tmin=0, tmax=0.35, interpolation='linear',
+            #brain.save_image(op.join(figures_dir, subject_MEG + meg_task + run_name + '-' + cond_name + '.png'))
+            brain.save_movie(op.join(figures_dir, subject_MEG + meg_task + run_name + '-' + cond_name + '-' + hemi + '.mov'), 
+                tmin=tmin, tmax=tmax, interpolation='linear',
                 time_dilation=50, time_viewer=True)
 
             # Note: if there are any issues with the plot/movie (e.g. showing 
