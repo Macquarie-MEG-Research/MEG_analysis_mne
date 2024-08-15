@@ -101,7 +101,7 @@ print("Finished filter")
 
 # browse data
 raw.plot()
-input("Close plot and then press Enter to continue...")
+input("Close plot and then press Enter to continue...") # For reasons I don't understand I need to have this line after each plot to avoid errors on my pc (VP)
 
 print("Finding events")
 # Finding events
