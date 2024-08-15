@@ -27,7 +27,7 @@ from autoreject.utils import interpolate_bads  # noqa
 # set up file and folder paths here
 #exp_dir = "/mnt/d/Work/analysis_ME197/"
 exp_dir = "C:/sync/OneDrive - Macquarie University/Studies/19_MEG_Microdosing/analysis/meg/"
-subject_MEG = '220503_87225_S1' #'230426_72956_S2' #'220112_p003'
+subject_MEG = '230616_25065_S2'  #'230426_72956_S2'#'220503_87225_S1'  #'220112_p003'
 meg_task = '_oddball' #''
 
 # the paths below should be automatic
@@ -81,7 +81,7 @@ raw = mne.io.read_raw_kit(
 )
 
 #TEMP: crop for now to speed up processing
-raw.crop(tmax=120)
+#raw.crop(tmax=120)
 
 # Apply TSPCA for noise reduction
 print("Starting TSPCA")
@@ -100,7 +100,8 @@ raw.filter(l_freq=0.1, h_freq=40)
 print("Finished filter")
 
 # browse data
-#raw.plot()
+raw.plot()
+input("Close plot and then press Enter to continue...")
 
 print("Finding events")
 # Finding events
@@ -194,6 +195,7 @@ for i in range(events.shape[0]):
    plt.axvline(stim_tps[i], color='r', lw=2, ls='--')
 plt.xlim(test_time-span, test_time+span)
 plt.show()
+input("Close plot and then press Enter to continue...")
 '''
 
 # if we have downsampled already, need to adjust the indices
@@ -242,6 +244,7 @@ maxfreq = n.max()
 # set a clean upper y-axis limit
 plt.ylim(ymax=np.ceil(maxfreq / 10) * 10 if maxfreq % 10 else maxfreq + 10)
 plt.show()
+input("Close plot and then press Enter to continue...")
 
 # a simple plot for testing purposes
 #X = range(10)
@@ -250,7 +253,8 @@ plt.show()
 
 
 print("Starting epoching")
-epochs = mne.Epochs(raw, events_corrected, event_id=event_ids, tmin=-0.1, tmax=0.41, preload=True)
+# ***** NOTE WE SET BASELINE=None BECAUSE MNE HAD OUTPUT SUGGESTING THIS IS BEST PRACTICE WHEN DOING EPOCHING BEFORE ICA
+epochs = mne.Epochs(raw, events_corrected, event_id=event_ids, tmin=-0.1, tmax=0.41, preload=True, baseline=None)
 conds_we_care_about = ["pre-deviant", "deviant"]
 epochs.equalize_event_counts(conds_we_care_about)
 print("Finished epoching")
@@ -280,9 +284,9 @@ else:
     '''
     
     # run ICA
-    ica = mne.preprocessing.ICA(n_components=60, max_iter="auto", random_state=97)
+    ica = mne.preprocessing.ICA(n_components=60, max_iter=300, random_state=97)
     ica.fit(epochs)
-    ica.save(ica_fname)
+    ica.save(ica_fname, overwrite=True)
 print("Finished ICA")
 
 
@@ -290,17 +294,24 @@ print("Finished ICA")
 # MEG sensors EOG artifacts and ECG related components using cross-trial phase statistic
 print("Starting ICA component rejection")
 # plot ICA results
-#ica.plot_sources(epochs) # plot IC time series
-#ica.plot_components() # plot IC topography
+ica.plot_sources(epochs) # plot IC time series
+input("Close plot and then press Enter to continue...")
+ica.plot_components() # plot IC topography
+input("Close plot and then press Enter to continue...")
 
 # find which ICs match the ECG pattern
+# ********** NOTE FOR PAUL: THE FOLLOWING LINE NEVER SEEMS TO FIND ANY ECG COMPONENTS. HAVE TRIED MULTIPLE DATASETS.
 ecg_indices, ecg_scores = ica.find_bads_ecg(epochs, method="ctps", threshold="auto")
 # barplot of ICA component "ECG match" scores
 ica.plot_scores(ecg_scores)
+input("Close plot and then press Enter to continue...")
 # plot diagnostics
+# we will need error correction in case no ecg components found
 ica.plot_properties(epochs, picks=ecg_indices)
+input("Close plot and then press Enter to continue...")
 # plot ICs applied to epochs, with ECG matches highlighted
 ica.plot_sources(epochs, show_scrollbars=False)
+input("Close plot and then press Enter to continue...")
 
 #TODO: find which ICs match the EOG pattern
 #eog_indices, eog_scores = ica.find_bads_eog(epochs, ch_name=??)
@@ -313,6 +324,7 @@ epochs_orig = copy.deepcopy(epochs)
 epochs_orig.plot(title='before ICA')
 ica.apply(epochs) # Note: data will be modified in-place
 epochs.plot(title='after ICA')
+input("Close plot and then press Enter to continue...")
 
 # save the clean epochs
 epochs.save(epochs_fname, overwrite=True)
@@ -322,6 +334,7 @@ print("Finished ICA component rejection")
 
 # plot ERFs
 fig = epochs.average().plot(spatial_colors=True, gfp=True)
+input("Close plot and then press Enter to continue...")
 fig.savefig(figures_dir_meg + subject_MEG + '_AEF_butterfly.png')
 fig2 = mne.viz.plot_compare_evokeds(
     [
@@ -329,4 +342,5 @@ fig2 = mne.viz.plot_compare_evokeds(
         epochs["deviant"].average(),
     ]
 )
+input("Close plot and then press Enter to continue...")
 fig2[0].savefig(figures_dir_meg + subject_MEG + '_AEF_gfp.png')
