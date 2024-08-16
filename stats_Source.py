@@ -15,26 +15,26 @@ import mne
 
 
 # set up file and folder paths here
-exp_dir = '/mnt/d/Work/analysis_ME206/' #'/home/jzhu/analysis_mne/'
-meg_task = '_localiser' #'_1_oddball' #''
-run_name = '_TSPCA'
+exp_dir = '/mnt/d/Work/analysis_ME209/' #'/home/jzhu/analysis_mne/'
+meg_task = 'dual_stim' #'localiser' #'1_oddball' #''
+run_name = '' #'_TSPCA'
+
+subjects_dir = '/mnt/d/Work/analysis_ME206/processing/mri/'
+subject = 'fsaverage'
 
 # specify which version of results to read in
-source_result = 'mne_surface' #"beamformer_vol" #"mne_vol"
+source_result = 'dSPM_surface' #"beamformer_vol" #"mne_vol"
 # specify the type of source space used for this run 
 src_type = 'surface' #'vol'
 
-# which cond to look at: (default == average across conditions)
-#cond = 'ba'
+# which cond to look at:
+cond = 'HF' # 'HF' or 'LF'
 
 
 # All paths below should be automatic
-processing_dir = op.join(exp_dir, "processing")
-subjects_dir = op.join(processing_dir, "mri")
-subject='fsaverage'
-
 results_dir = op.join(exp_dir, "results")
-source_results_dir = op.join(results_dir, 'meg', 'source', meg_task[1:] + run_name, source_result)
+#source_results_dir = op.join(results_dir, 'meg', 'source', meg_task[1:] + run_name, source_result)
+source_results_dir = op.join(results_dir, 'meg', 'source', meg_task + run_name, source_result)
 figures_dir = op.join(source_results_dir, 'Figures') # where to save the figure
 
 
@@ -45,7 +45,7 @@ figures_dir = op.join(source_results_dir, 'Figures') # where to save the figure
 if src_type == 'vol':
 
     # find all the saved stc results
-    stc_files = glob.glob(op.join(source_results_dir, 'G*-vl.stc'))
+    stc_files = glob.glob(op.join(source_results_dir, '*-' + cond + '-vl.stc'))
 
     # initialise the sum array to correct size using the first subject's stc
     stc = mne.read_source_estimate(stc_files[0])
@@ -76,7 +76,7 @@ if src_type == 'vol':
 elif src_type == 'surface':
 
     # find all the saved stc results
-    stc_files = glob.glob(op.join(source_results_dir, 'G*-lh.stc'))
+    stc_files = glob.glob(op.join(source_results_dir, '*-' + cond + '-lh.stc'))
     # only need to supply the filename for one hemisphere, it will look for both
     # https://mne.tools/stable/generated/mne.read_source_estimate.html
 
@@ -99,6 +99,7 @@ elif src_type == 'surface':
 
 
     # Plot the GA stc
+    '''
     hemi='lh'
     vertno_max, time_max = stc.get_peak(hemi=hemi)
     initial_time = time_max
@@ -111,7 +112,37 @@ elif src_type == 'surface':
     #brain.add_foci(vertno_max, coords_as_verts=True, hemi=hemi, color='blue',
     #            scale_factor=0.6, alpha=0.5)
     brain.save_image(op.join(figures_dir, 'GA-' + str(initial_time) + 's-' + hemi + '.png'))
+    '''
 
+    # ME209 - specify scales for brain plot & time windows for movies
+    if 'dual_' in meg_task:
+        if '_sac' in meg_task: # saccade-locked analysis
+            clim=dict(kind='value', lims=[2.5, 4.5, 6.5]) #TODO: adjust based on final GA plots
+            tmin = -0.3
+            tmax = 0
+        else: # stimulus-locked analysis
+            clim=dict(kind='value', lims=[6, 10.5, 15]) #TODO: adjust based on final GA plots
+            tmin = 0
+            tmax = 0.35
+    
+    hemi='both'
+    #vertno_max, time_max = stcs[cond].get_peak(hemi=hemi, tmin=0.1, tmax=0.27)
+    initial_time = 0.16 #time_max
+    surfer_kwargs = dict(
+        hemi=hemi, subject=subject, subjects_dir=subjects_dir,
+        #clim=clim, # explicitly set the scales to make them consistent across conds
+        initial_time=initial_time,
+        time_unit='s', title='GA_' + cond,
+        views=['caudal','ventral','lateral','medial'],
+        show_traces=False, # use False to avoid having the blue dot (peak vertex) showing up on the brain
+        smoothing_steps=10)
+    brain = stc.plot(**surfer_kwargs)
+    #brain.add_foci(vertno_max, coords_as_verts=True, hemi=hemi,
+    #    color='blue', scale_factor=0.6, alpha=0.5)
+    #brain.save_image(op.join(figures_dir, subject_MEG + meg_task + run_name + '-' + cond + '.png'))
+    brain.save_movie(op.join(figures_dir, run_name + 'GA-' + meg_task + '-' + cond + '-' + hemi + '.mov'),
+        tmin=tmin, tmax=tmax, interpolation='linear',
+        time_dilation=50, time_viewer=True)
     # see also:
     # https://mne.tools/stable/auto_tutorials/inverse/60_visualize_stc.html#surface-source-estimates
 
