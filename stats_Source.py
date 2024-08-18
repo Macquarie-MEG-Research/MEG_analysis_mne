@@ -127,13 +127,13 @@ for cond in conds:
             views=['caudal','ventral','lateral','medial'],
             show_traces=False, # use False to avoid having the blue dot (peak vertex) showing up on the brain
             smoothing_steps=10)
-        #brain = GA_stcs[cond].plot(**surfer_kwargs)
+        brain = GA_stcs[cond].plot(**surfer_kwargs)
         #brain.add_foci(vertno_max, coords_as_verts=True, hemi=hemi,
         #    color='blue', scale_factor=0.6, alpha=0.5)
         #brain.save_image(op.join(figures_dir, subject_MEG + meg_task + run_name + '-' + cond + '.png'))
-        #brain.save_movie(op.join(figures_dir, run_name + 'GA-' + meg_task + '-' + cond + '-' + hemi + '.mov'),
-        #    tmin=tmin, tmax=tmax, interpolation='linear',
-        #    time_dilation=50, time_viewer=True)
+        brain.save_movie(op.join(figures_dir, run_name + 'GA-' + meg_task + '-' + cond + '-' + hemi + '.mov'),
+            tmin=tmin, tmax=tmax, interpolation='linear',
+            time_dilation=50, time_viewer=True)
         # see also:
         # https://mne.tools/stable/auto_tutorials/inverse/60_visualize_stc.html#surface-source-estimates
 
