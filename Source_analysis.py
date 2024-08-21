@@ -560,6 +560,7 @@ for subject_MEG in subjects:
 
 
 
+    '''
     # = Extract ROI time course from source estimates =
 
     conds = ['match','mm1','mm2','mm3','mm4']
@@ -616,7 +617,7 @@ for subject_MEG in subjects:
             avg = np.mean(label_ts[0][0][time_interval], axis=0)
             avgovertime_row.append(avg)
 
-        axes.axvline(linestyle='--') # add verticle line at time 0
+        axes.axvline(linestyle='-') # add verticle line at time 0
         if source_method == "dSPM":
             axes.set(xlabel="Time (ms)", ylabel="Activation")
         elif source_method == "mne":
@@ -636,7 +637,7 @@ for subject_MEG in subjects:
         with open(op.join(avgovertime_dir, subject_MEG + ".txt"), "w") as file:
             for row in avgovertime_table:
                 file.write("\t".join(map(str, row)) + "\n")
-
+    '''
 
     '''
     # Q: 
