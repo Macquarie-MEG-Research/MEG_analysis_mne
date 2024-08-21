@@ -402,7 +402,7 @@ for subject_MEG in subjects:
         evokeds.append(epochs[cond].average())
 
     # ME209 - use combined conditions for left & right saccades
-    if '_dual' in meg_task or 'single' in meg_task:
+    if '_dual' in meg_task or '_single' in meg_task:
         evokeds = []
         conds_combined = ['HF', 'LF']
         for cond in conds_combined:
@@ -617,7 +617,10 @@ for subject_MEG in subjects:
             avgovertime_row.append(avg)
 
         axes.axvline(linestyle='--') # add verticle line at time 0
-        axes.set(xlabel="Time (ms)", ylabel="MNE current (nAm)")
+        if source_method == "dSPM":
+            axes.set(xlabel="Time (ms)", ylabel="Activation")
+        elif source_method == "mne":
+            axes.set(xlabel="Time (ms)", ylabel="MNE current (nAm)")
         axes.set(title=label_name)
         axes.legend()
 
