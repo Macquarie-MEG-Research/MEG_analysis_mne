@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 #
-# Test out using EOG & ECG channels to automatically pick ICA components for artifact rejection
+# Preprocessing script for MEG-NET project
+# We recorded EOG & ECG, so we use these to automatically pick ICA components for rejection
 #
 # Authors: Judy Zhu
 
@@ -17,7 +18,7 @@ import copy
 
 # set up file and folder paths here
 exp_dir = "/mnt/d/Work/analysis_ME211/"
-subject_MEG = 'Pilot01_XZ_20240606'
+subject_MEG = 'S01_LH_20240724'
 task = 'oddball' #''
 run_name = '_TSPCA'
 
@@ -69,8 +70,8 @@ raw._data[0:160] = data_after_tspca.transpose()
 
 # Raw EEG data
 raw_eeg = mne.io.read_raw_brainvision(fname_eeg[0]).load_data()
-raw_eeg = raw_eeg.drop_channels('1') # bad connection - this channel was not used
-eeg_renames = {'2':'EOG', '3':'ECG'}
+#raw_eeg = raw_eeg.drop_channels('1') # bad connection - this channel was not used
+eeg_renames = {'1':'EOG', '2':'ECG'}
 ch_types_map = dict(ECG="ecg", EOG="eog")
 raw_eeg.rename_channels(eeg_renames)
 raw_eeg.set_channel_types(ch_types_map)
@@ -147,7 +148,7 @@ raw.add_channels([raw_eeg])
 raw.plot()
 #raw.crop(tmax=600)
 if len(raw.info["bads"]) == 0:
-    raw.info["bads"] = ["MEG 043"]
+    raw.info["bads"] = ["MEG 043", "MEG 095"]
 
 # plot the power spectrum for sanity check
 #spectrum = raw.compute_psd()
@@ -287,17 +288,23 @@ for i in range(events_corrected.shape[0]):
 #%% === Epoching === #
 
 # specify the event IDs
-event_ids = {
-    "standard": 186,
-    "short": 191,
-    "omitted": 198,
-}
+if task == 'oddball':
+    event_ids = {
+        "standard": 186,
+        "short": 191,
+        "omitted": 198,
+    }
+elif task == 'gamma':
+    event_ids = {
+        "stimulus_onset": 183,
+    }
 
 if not os.path.exists(epochs_fname):
     epochs = mne.Epochs(raw, events_corrected, event_id=event_ids, tmin=-0.1, tmax=0.41, preload=True)
 
-    conds_we_care_about = ["standard", "short", "omitted"]
-    epochs.equalize_event_counts(conds_we_care_about)
+    if task == 'oddball':
+        conds_we_care_about = ["standard", "short", "omitted"]
+        epochs.equalize_event_counts(conds_we_care_about)
 
     # downsample to 100Hz
     print("Original sampling rate:", epochs.info["sfreq"], "Hz")
@@ -314,16 +321,18 @@ if not os.path.exists(figures_dir + subject_MEG + '_AEF_butterfly.png'):
     fig = epochs_resampled.average().plot(spatial_colors=True, gfp=True)
     fig.savefig(figures_dir + subject_MEG + '_AEF_butterfly.png')
 
-    fig2 = mne.viz.plot_compare_evokeds(
-        [
-            epochs_resampled["standard"].average(),
-            epochs_resampled["short"].average(),
-            epochs_resampled["omitted"].average(),
-        ],
-        #combine = 'mean' # combine channels by taking the mean (default is GFP)
-    )
+    if task == 'oddball':
+        fig2 = mne.viz.plot_compare_evokeds(
+            [
+                epochs_resampled["standard"].average(),
+                epochs_resampled["short"].average(),
+                epochs_resampled["omitted"].average(),
+            ],
+            #combine = 'mean' # combine channels by taking the mean (default is GFP)
+        )
+    elif task == 'gamma':
+        fig2 = mne.viz.plot_compare_evokeds(
+            epochs_resampled["stimulus_onset"].average(),
+            #combine = 'mean' # combine channels by taking the mean (default is GFP)
+        )        
     fig2[0].savefig(figures_dir + subject_MEG + '_AEF_gfp.png')
-
-
-#%% === Source analysis === #
-
