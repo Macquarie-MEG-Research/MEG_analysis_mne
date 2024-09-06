@@ -423,10 +423,10 @@ for subject_MEG in subjects:
         if '_sac' in meg_task: # saccade-locked analysis
             tmin = -0.4
             tmax = -0.3
-        else: # stimulus-locked analysis
-            tmin = -0.1
-            tmax = 0
-        
+        else: # stimulus-locked analysis (use baseline interval for noise cov, i.e. default)
+            tmin = None #-0.1
+            tmax = None #0
+                
         noise_cov = mne.compute_covariance(epochs, tmin=tmin, tmax=tmax,
                                         method=['shrunk','empirical'])
         #fig_cov, fig_spectra = mne.viz.plot_cov(noise_cov, info_new)
@@ -524,7 +524,7 @@ for subject_MEG in subjects:
                 tmax = 0
             else: # stimulus-locked analysis
                 tmin = 0
-                tmax = 0.35
+                tmax = None #0.35
             brain = stcs[cond].plot(**surfer_kwargs)
             #brain.add_foci(vertno_max, coords_as_verts=True, hemi=hemi, 
             #    color='blue', scale_factor=0.6, alpha=0.5)
