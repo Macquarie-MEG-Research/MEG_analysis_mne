@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 import os.path as op
 import numpy as np
+import matplotlib.pyplot as plt
 import copy
 
 import mne
@@ -76,7 +77,6 @@ cov_polysw = mne.compute_covariance(epochs['polysw'], tmax=0., method=['shrunk',
 cov_sw_post = mne.compute_covariance(epochs['sw_post'], tmax=0., method=['shrunk', 'empirical'], rank=None)
 
 
-### Source localisation ###
 
 # Method 1: fit a dipole
 # https://mne.tools/stable/auto_tutorials/inverse/20_dipole_fit.html
@@ -90,6 +90,7 @@ dip_sw_post.save(results_dir + 'sw_post.dip')
 dip.plot_locations(fname_trans, subject, subjects_dir, mode='orthoview')
 #dip_sw_post = mne.read_dipole(exp_dir + 'sw_post.dip')
 dip_sw_post.plot_locations(fname_trans, subject, subjects_dir, mode='orthoview')
+
 
 
 # Prep for Methods 2 & 3 - create source space & forward model
@@ -163,6 +164,7 @@ else:
 print(fwd)
 
 
+
 # Method 2: minimum norm
 # https://mne.tools/stable/auto_tutorials/inverse/30_mne_dspm_loreta.html#inverse-modeling-mne-dspm-on-evoked-and-raw-data
 
@@ -191,6 +193,7 @@ stc.plot(src=src, subject=subject, subjects_dir=subjects_dir, initial_time=0.053
 stc.plot(src, subject=subject, subjects_dir=subjects_dir, mode='glass_brain')
 
 
+
 # Method 3: kurtosis beamformer
 # use 1-min segment around each manually marked spike, ensure there's no overlap
 
@@ -213,7 +216,7 @@ for i in reversed(too_close): # do in reversed order as indices will change afte
 
 # create 1-min epochs around these events
 epochs = mne.Epochs(
-    raw, events_sw_post, event_id={cond: cond_id}, tmin=-30, tmax=30, preload=True
+    raw, events_sw_post, event_id={cond: cond_id}, tmin=-30, tmax=30, baseline=None, preload=True
 )
 # downsample to 250Hz, otherwise stc will be too large (due to very long epochs)
 # (checked on raw data - spikes are still pretty obvious after downsampling)
@@ -224,7 +227,8 @@ epochs.decimate(4)
 
 # average the epochs
 evoked = epochs[cond].average()
-#evoked.save(op.join(results_dir, subject_MEG + '_' + cond + '-ave.fif'))
+fname_evoked = op.join(results_dir, subject_MEG + '_' + cond + '-ave.fif')
+evoked.save(fname_evoked)
 
 # compute data cov
 data_cov = mne.compute_covariance(epochs) # use the whole epochs
@@ -253,20 +257,25 @@ else:
         noise_cov=noise_cov, pick_ori='max-power', # 1 estimate per voxel (only preserve the axis with max power)
         weight_norm='unit-noise-gain', rank=None)
     # save the filters for later
-    filters.save(fname_filters, overwrite=True)
+    filters.save(fname_filters)
 
 # save some memory
 del raw, raw_empty_room, epochs, fwd
 
+# load the saved evoked
+cond = 'sw_post'
+fname_evoked = op.join(results_dir, subject_MEG + '_' + cond + '-ave.fif')
+evoked = mne.read_evokeds(fname_evoked)
+evoked = evoked[0]
+
 # apply the spatial filter
+evoked = epochs[cond][4].average() # TODO: apply spatial filter on indi epochs
 stcs = dict()
-#evoked = mne.read_evokeds(op.join(results_dir, subject_MEG + '_' + cond + '-ave.fif'))
 stcs[cond] = apply_lcmv(evoked, filters)
 
 # plot the reconstructed source activity
 # (Memory intensive due to 1-min epochs - cannot run if we didn't downsample from 1000Hz)
-'''
-lims = [0.3, 0.45, 0.6] # set colour scale
+#lims = [0.3, 0.45, 0.6] # set colour scale
 kwargs = dict(src=src, subject=subject, subjects_dir=subjects_dir, verbose=True)
 brain = stcs[cond].plot_3d(   
     #clim=dict(kind='value', lims=lims), 
@@ -275,13 +284,18 @@ brain = stcs[cond].plot_3d(
     view_layout='horizontal', views=['coronal', 'sagittal', 'axial'], # make a 3-panel figure showing all views
     brain_kwargs=dict(silhouette=True),
     **kwargs)
-'''
-
 
 # compute kurtosis for each vertex
 kurtosis = univariate.compute_kurtosis(stcs[cond].data)
 
+# find the vertex (or cluster of vertices) with maximum kurtosis
+print(np.max(kurtosis))
+VS_list = np.where(kurtosis > 6.5) 
+VS_list
+# note: Rui's paper uses all the local maxima on the kurtosis map, we are just using an absolute cutoff here
+
 # plot the kurtosis value for each vertex on the source model
+'''
 tmp = copy.copy(stcs[cond]) # make a fake stc by copying the structure
 tmp.data = kurtosis.reshape(-1,1) # convert 1d array to 2d
 kwargs = dict(src=src, subject=subject, subjects_dir=subjects_dir, verbose=True)
@@ -294,13 +308,30 @@ tmp.plot_3d(
     view_layout='horizontal', views=['coronal', 'sagittal', 'axial'], # make a 3-panel figure showing all views
     brain_kwargs=dict(silhouette=True),
     **kwargs)
+'''
 
-# find the vertex (or cluster of vertices) with maximum kurtosis
-print(np.max(kurtosis))
-VS_list = np.where(kurtosis > 3.7) 
-# note: Rui's paper uses all the local maxima on the kurtosis map, we are just using an absolute cutoff here
 
-# TODO: now we should visually inspect the stc for each of these vertices
-# to see if the timing of spikes match the ones marked in raw data
+# now we should visually inspect the stc for each of these vertices
+# to see if the timing of spikes match the ones marked in raw data (i.e. around time 0)
 
-# And then how should we proceed? read Rui paper again ...
+# TODO: how to plot the time course for a particular vertex?
+# These don't work:
+#brain.add_foci(VS_list, coords_as_verts = True, hemi = 'lh')
+#brain.plot_time_course(hemi='lh', vertex_id=6442, color='r')
+#mne.viz.plot_compare_evokeds(stcs, picks=VS_list)
+vertex_id = 2291
+plt.plot(stcs[cond].data[vertex_id, :])
+plt.show()
+# to find the index for a particular vertex (e.g. the one chosen by stc.plot_3d)
+#np.where(stcs[cond].vertices[0] == 16453)
+
+# If the spikes seem correct in timing, then we are done?
+# (i.e. high kurtosis value == source of the spikes)
+# But there are more steps in Rui's paper, what do these steps mean?
+
+
+# Qs:
+# Rui's paper does beamforming on each indi 3-min segment (does this mean it's not
+# 3-min epochs, but breaking each 3-min segment into many epochs? I did actual 1-min 
+# epochs), so they get a set of kurtosis values for each segment, then pick the vertex
+# with max kurtosis value in each segment
