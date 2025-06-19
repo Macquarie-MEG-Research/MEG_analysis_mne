@@ -159,10 +159,7 @@ stim_tps = np.load(save_dir + 'audio_channel_triggers.npy')
 
 def getEnvelope(inputSignal):
     # Taking the absolute value
-    absoluteSignal = []
-    for sample in inputSignal:
-        absoluteSignal.append(abs(sample))
-    absoluteSignal = absoluteSignal[0]
+    absoluteSignal = np.abs(inputSignal)
 
     # Peak detection
     intervalLength = 5  # Experiment with this number!
