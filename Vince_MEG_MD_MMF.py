@@ -35,14 +35,14 @@ import my_preprocessing
 #os.chdir("/Users/mq20096022/Downloads/220112_p003/")
 
 # set up file and folder paths here
-#exp_dir = "/mnt/d/Work/analysis_ME197/"
-exp_dir = "C:/sync/OneDrive - Macquarie University/Studies/19_MEG_Microdosing/analysis/meg/"
+exp_dir = "/mnt/d/Work/analysis_ME197/"
+#exp_dir = "C:/sync/OneDrive - Macquarie University/Studies/19_MEG_Microdosing/analysis/meg/"
 subject_MEG = '220503_87225_S1' #'230426_72956_S2' #'220112_p003'
 meg_task = '_oddball' #'_oddball' #''
 
 # the paths below should be automatic
-#data_dir = exp_dir + "data/"
-data_dir = "C:/sync/OneDrive - Macquarie University/Studies/19_MEG_Microdosing/data/ACQUISITION/"
+data_dir = exp_dir + "data/"
+#data_dir = "C:/sync/OneDrive - Macquarie University/Studies/19_MEG_Microdosing/data/ACQUISITION/"
 processing_dir = exp_dir + "processing/"
 results_dir = exp_dir + "results/"
 #meg_dir = data_dir + subject_MEG + "/meg/"
@@ -130,13 +130,19 @@ std_dev_bool = np.insert(np.diff(events[:, 2]) != 0, 0, "True") # find all devia
 for idx, event in enumerate(std_dev_bool):
     if event and idx > 0: # for all deviants (except for the very first trial, which we won't use)
         events[idx, 2] = 2 # code current trial as '2'
-        if events[idx - 1, 2] != 2:
-            events[idx - 1, 2] = 1 # code previous trial as '1'
+        #if events[idx - 1, 2] != 2:
+        #    events[idx - 1, 2] = 1 # code previous trial as '1'
+        if idx + 5 < len(events): 
+            events[idx+5, 2] = 1 # code standard trials as 1 (based on pre-reg, 'standard' is defined as the 6th tone in the train)
+for idx, event in enumerate(events):
+    if events[idx,2] >2:
+        events[idx, 2] = 3 # events that are neither deviant or standard are coded as 'other'
 
 # specify the event IDS (these will be used during epoching)
 event_ids = {
     "standard": 1,
     "deviant": 2,
+    "other": 3,
 }
 
 
@@ -159,7 +165,11 @@ stim_tps = np.load(save_dir + 'audio_channel_triggers.npy')
 
 def getEnvelope(inputSignal):
     # Taking the absolute value
-    absoluteSignal = np.abs(inputSignal)
+    #absoluteSignal = []
+    #for sample in inputSignal:
+    #    absoluteSignal.append(abs(sample))
+    #absoluteSignal = absoluteSignal[0]
+    absoluteSignal = np.abs(inputSignal)[0]
 
     # Peak detection
     intervalLength = 5  # Experiment with this number!
@@ -197,8 +207,8 @@ print("Number of events from audio channel (166) signal:", stim_tps.shape[0])
 
 # plot any problematic time period to aid diagnosis
 '''
-test_time = 454368
-span = 10000
+test_time = 24368
+span = 2000
 plt.figure()
 plt.plot(aud_ch_data_raw[0], 'b')
 #plt.plot(outputSignal, 'r')
@@ -229,6 +239,10 @@ for i in range(events.shape[0]):
 # discard events which could not be corrected
 events_corrected = np.delete(events_corrected, missing, 0)
 print("Could not correct", len(missing), "events - these were discarded!")
+# sanity check - how many trials in each condition?
+print("Number of deviant events after correction:", np.sum(events_corrected[:, 2] == 2))
+print("Number of standard events after correction:", np.sum(events_corrected[:, 2] == 1))
+print("Number of other events after correction:", np.sum(events_corrected[:, 2] == 3))
 
 # histogram showing the distribution of audio delays
 n, bins, patches = plt.hist(
